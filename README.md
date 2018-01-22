@@ -7,7 +7,7 @@ is listed below.
 
 ### cryptocurrencies
 
-Used in my blog post []"An Analysis of Cryptocurrency Trends"](http://johncrattz.com/an-analysis-of-cryptocurrency-trends/).
+Used in my blog post ["An Analysis of Cryptocurrency Trends"](http://johncrattz.com/an-analysis-of-cryptocurrency-trends/).
 
 This was my first project. 
 This project analyzed cryptocurrency trends and attempted
