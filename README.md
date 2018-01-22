@@ -2,8 +2,7 @@
 
 This is my collection of data science projects.
 Each project has its own folder. 
-The full names of these projects and information about them
-is listed below.
+More information about these projects is listed below.
 
 ### cryptocurrencies
 
