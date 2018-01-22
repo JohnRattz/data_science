@@ -5,9 +5,9 @@ Each project has its own folder.
 The full names of these projects and information about them
 is listed below.
 
-### An Analysis of Cryptocurrency Trends
+### cryptocurrencies
 
-Located in the **cryptocurrencies** folder.
+Used in my blog post []"An Analysis of Cryptocurrency Trends"](http://johncrattz.com/an-analysis-of-cryptocurrency-trends/).
 
 This was my first project. 
 This project analyzed cryptocurrency trends and attempted
