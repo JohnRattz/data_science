@@ -29,7 +29,7 @@ cryptocurrencies.
 The data is [from Kaggle](https://www.kaggle.com/sudalairajkumar/cryptocurrencypricehistory)
 and is stored in the **data** subfolder. The machine learning models
 that would be trained if the commented block of code above the "Model Loading"
-section in **Cryptocurrencies_v2.py** were run are stored in the **models** 
+section in **Cryptocurrencies_v2.py** were uncommented and run are stored in the **models** 
 subfolder. If **Cryptocurrencies_v2.py** is run, figures are stored in the **figures**
 subfolder. Figures directly in that subfolder contain multiple plots per figure. Figures
 containing plots of one cryptocurrency each are in corresponding subfolders, like
