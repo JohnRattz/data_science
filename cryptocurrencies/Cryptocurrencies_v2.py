@@ -4,6 +4,9 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 import warnings
+
+from cryptocurrencies.ETL import load_csvs, load_sql
+
 warnings.simplefilter('ignore')
 import seaborn as sns
 
@@ -16,57 +19,12 @@ def main():
         os.makedirs(figures_dir)
     figure_dpi = 200
 
-    # Data Importing
-    bitcoin_cash = pd.read_csv('data/bitcoin_cash_price.csv')
-    bitcoin_cash.set_index('Date', inplace=True)
-
-    bitcoin = pd.read_csv('data/bitcoin_price.csv')
-    bitcoin.set_index('Date', inplace=True)
-
-    bitconnect = pd.read_csv('data/bitconnect_price.csv')
-    bitconnect.set_index('Date', inplace=True)
-
-    dash = pd.read_csv('data/dash_price.csv')
-    dash.set_index('Date', inplace=True)
-
-    etherium_classic = pd.read_csv('data/ethereum_classic_price.csv')
-    etherium_classic.set_index('Date', inplace=True)
-
-    etherium = pd.read_csv('data/ethereum_price.csv')
-    etherium.set_index('Date', inplace=True)
-
-    iota = pd.read_csv('data/iota_price.csv')
-    iota.set_index('Date', inplace=True)
-
-    litecoin = pd.read_csv('data/litecoin_price.csv')
-    litecoin.set_index('Date', inplace=True)
-
-    monero = pd.read_csv('data/monero_price.csv')
-    monero.set_index('Date', inplace=True)
-
-    nem = pd.read_csv('data/nem_price.csv')
-    nem.set_index('Date', inplace=True)
-
-    neo = pd.read_csv('data/neo_price.csv')
-    neo.set_index('Date', inplace=True)
-
-    numeraire = pd.read_csv('data/numeraire_price.csv')
-    numeraire.set_index('Date', inplace=True)
-
-    omisego = pd.read_csv('data/omisego_price.csv')
-    omisego.set_index('Date', inplace=True)
-
-    qtum = pd.read_csv('data/qtum_price.csv')
-    qtum.set_index('Date', inplace=True)
-
-    ripple = pd.read_csv('data/ripple_price.csv')
-    ripple.set_index('Date', inplace=True)
-
-    stratis = pd.read_csv('data/stratis_price.csv')
-    stratis.set_index('Date', inplace=True)
-
-    waves = pd.read_csv('data/waves_price.csv')
-    waves.set_index('Date', inplace=True)
+    # Data Importing (SQL)
+    bitcoin, bitcoin_cash, bitconnect, dash, etherium, etherium_classic, iota, litecoin, \
+    monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_sql()
+    # Data Importing (CSV)
+    # bitcoin, bitcoin_cash, bitconnect, dash, etherium, etherium_classic, iota, litecoin, \
+    # monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_csvs()
 
     currencies_labels_tickers = np.array(
         [['Bitcoin Cash', 'BCH'], ['Bitcoin', 'BTC'], ['BitConnect', 'BCC'], ['Dash', 'DASH'],
@@ -208,11 +166,10 @@ def main():
         score_model_tuples = []
 
         # Specify the cross validation method.
-        from sklearn.model_selection import KFold, GridSearchCV
+        from sklearn.model_selection import KFold
         cv = KFold(n_splits=5, shuffle=True, random_state=42)
 
         # Scoring
-        from sklearn.metrics import make_scorer, r2_score
 
         # # Create the models.
         # import multiprocessing
