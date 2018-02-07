@@ -1,15 +1,18 @@
 library(RMySQL)
 library(ggplot2)
+library(reshape2)
 library(scales)
+library(quantmod)
+library(plyr)
 
 READ_FROM_CSV = TRUE
 
 bitcoin_cash <- NULL; bitcoin <- NULL; bitconnect <- NULL;
 dash <- NULL; ethereum_classic <- NULL; ethereum <- NULL;
-iota <- NULL; litecoin <- NULL; monero <- NULL
+iota <- NULL; litecoin <- NULL; monero <- NULL;
 nem <- NULL; neo <- NULL; numeraire <- NULL; 
-omisego <- NULL; qtum <- NULL; ripple <- NULL
-stratis <- NULL; waves <- NULL
+omisego <- NULL; qtum <- NULL; ripple <- NULL;
+stratis <- NULL; waves <- NULL;
 if (!READ_FROM_CSV) {
   # Data Importing (SQL)
   con <- dbConnect(MySQL(), user='john', 
@@ -54,25 +57,6 @@ if (!READ_FROM_CSV) {
   waves <- read.csv('../data/waves_price.csv')
   # head(waves, 1) 
 }
-# Make the 'Date' column the index.
-# bitcoin_cash <- data.frame(bitcoin_cash[,-1], row.names = bitcoin_cash[,1])
-# bitcoin <- data.frame(bitcoin[,-1], row.names = bitcoin[,1])
-# bitconnect <- data.frame(bitconnect[,-1], row.names = bitconnect[,1])
-# dash <- data.frame(dash[,-1], row.names = dash[,1])
-# ethereum_classic <- data.frame(ethereum_classic[,-1], row.names = ethereum_classic[,1])
-# ethereum <- data.frame(ethereum[,-1], row.names = ethereum[,1])
-# iota <- data.frame(iota[,-1], row.names = iota[,1])
-# litecoin <- data.frame(litecoin[,-1], row.names = litecoin[,1])
-# monero <- data.frame(monero[,-1], row.names = monero[,1])
-# nem <- data.frame(nem[,-1], row.names = nem[,1])
-# neo <- data.frame(neo[,-1], row.names = neo[,1])
-# numeraire <- data.frame(numeraire[,-1], row.names = numeraire[,1])
-# omisego <- data.frame(omisego[,-1], row.names = omisego[,1])
-# qtum <- data.frame(qtum[,-1], row.names = qtum[,1])
-# ripple <- data.frame(ripple[,-1], row.names = ripple[,1])
-# stratis <- data.frame(stratis[,-1], row.names = stratis[,1])
-# waves <- data.frame(waves[,-1], row.names = waves[,1])
-
 currencies_labels_tickers = 
   matrix(c('Bitcoin Cash', 'BCH', 'Bitcoin', 'BTC', 'BitConnect', 'BCC', 
            'Dash', 'DASH', 'Ethereum Classic', 'ETC', 'Ethereum', 'ETH', 
@@ -88,9 +72,6 @@ for (i in seq(1,num_currencies)) {
   currency_ticker <- currencies_tickers[i]
   currencies_labels_and_tickers[i] <- sprintf("%s (%s)", currency_label, currency_ticker)
 }
-currencies_labels_and_tickers
-#bitcoin[c('Date', 'Close')]
-#bitcoin_cash[1,]
 # TODO: Do this in a loop.
 closing_values <- NULL
 closing_values <- merge(bitcoin_cash[c('Date', 'Close')], bitcoin[c('Date', 'Close')],
@@ -128,7 +109,7 @@ closing_values <- merge(closing_values, waves[c('Date', 'Close')], by='Date', al
 
 # Change the column names.
 colnames(closing_values) <- c('Date', currencies_labels_and_tickers)
-head(closing_values, 1)
+#head(closing_values, 1)
 
 # If we read from the CSV files, reformat the dates.
 if (READ_FROM_CSV) {
@@ -136,19 +117,12 @@ if (READ_FROM_CSV) {
     as.Date(date,"%b %d, %Y")
   }
   reformat_date <- function(date) {
-    # as.character(format(as.Date(date,"%b %d, %Y")))
     as.POSIXct(date, format="%b %d, %Y")
   }
-  # closing_values['Date'] <- lapply(closing_values['Date'], to_datetime)
   closing_values['Date'] <- lapply(closing_values['Date'], reformat_date)
 }
 closing_values <- closing_values[order(closing_values['Date']),]
-
-# Make the 'Date' column the index.
-#closing_values[!(names(closing_values) %in% c("Date"))][1:5,]
-#closing_values <- data.frame(closing_values[,!(names(closing_values) %in% c("Date"))], row.names = closing_values[,"Date"])
-#colnames(closing_values) <- currencies_labels_and_tickers
-head(closing_values, 5)
+#head(closing_values, 5)
 
 #prices <- data.frame(bitcoin[,'Close'], bitcoin_cash[,'Close'], bitconnect[,'Close'], 
 #                     dash[,'Close'], ethereum[,'Close'], ethereum_classic[,'Close'], 
@@ -160,61 +134,46 @@ head(closing_values, 5)
 #prices[1]
 
 # Value Trends
-ChickWeight[1:5,]
-
-dat <- matrix(runif(40,1,20),ncol=4) # make data
-dat
-matplot(dat, type = c("b"),pch=1,col = 1:4) #plot
-legend("topleft", legend = 1:4, col=1:4, pch=1) # optional legend
-
-library(reshape2)
-# df <- data.frame(time = 1:10,
-#                  a = cumsum(rnorm(10)),
-#                  b = cumsum(rnorm(10)),
-#                  c = cumsum(rnorm(10)))
-# head(df)
-# df <- melt(df, id.vars = 'time', variable.name = 'series')
-# df
-
 dir.create(file.path('figures'), showWarnings = FALSE)
 for (i in seq(1,num_currencies)) {
   currency_label_ticker <- currencies_labels_and_tickers[[i]]
   currency_closing_plotting <- melt(closing_values[c("Date", currency_label_ticker)], id.var='Date', variable.name='Currency')
   # Remove NA values.
   currency_closing_plotting <- currency_closing_plotting[!(is.na(currency_closing_plotting$value)),]
-  head(currency_closing_plotting)
+  # head(currency_closing_plotting)
+  currency_label <- currencies_labels[i]
+  currency_ticker <- currencies_tickers[i]
+  currency_label_no_spaces <- gsub(" ", "_", currency_label)
   currency_value_plot <- 
     ggplot(currency_closing_plotting, aes(Date,value,group=1)) + 
-    theme(text = element_text(size=8),
-          # Orient x-axis tick labels vertically.
-          axis.text.x = element_text(angle=90, hjust=1)) +
     geom_line(aes(colour=Currency)) +
-    scale_x_datetime(breaks = date_breaks("4 weeks"), labels = date_format("%Y-%m")) +#"", format="%Y-%b") +
-    ylab("")
+    scale_x_datetime(breaks = pretty(currency_closing_plotting$Date,n=8),labels = date_format("%Y-%m")) +
+    ylab("Close") +
+    ggtitle(sprintf("%s (%s) Closing Value", 
+                    currency_label, currency_ticker)) +
+    # Center the title
+    theme(plot.title = element_text(hjust = 0.5),
+          # Remove legend on right.
+          legend.position="none")
   # Save the plot.
-  currency_label <- currencies_labels[i]
-  currency_label_no_spaces <- gsub(" ", "_", currency_label)
   filename <- sprintf("%s_price_trend.png", currency_label_no_spaces, showWarnings = FALSE)
   dir.create(file.path('figures', currency_label_no_spaces), showWarnings = FALSE)
   ggsave(filename, path=sprintf('figures/%s', currency_label_no_spaces))
 }
 
-# bitcoin_closing_plotting <- melt(closing_values[c("Date", "Bitcoin (BTC)")], id.var='Date', variable.name='Currency')
-# head(bitcoin_closing_plotting)
-# ggplot(bitcoin_closing_plotting, aes(Date,value)) + geom_line(aes(colour=Currency))
-#closing_values_plotting <- melt(closing_values, id.vars='Date', variable.name='Currency')
-#ggplot(closing_values_plotting, aes(Date,value)) + geom_line(aes(colour=Currency))
-
 # Value Correlations
 
 # Convert POSIXct dates to strings.
+std_date_format <- "%Y-%m-%d"
 date_to_str <- function(date) {
-  strftime(date, format="%Y-%m-%d")
+  strftime(date, format=std_date_format)
 }
-# closing_values['Date'] <- lapply(closing_values['Date'], date_to_str)
-# head(closing_values['Date'])
+# Convert strings to POSIXlt dates.
+str_to_datelt <- function(date_str) {
+  as.POSIXlt(date_str, format=std_date_format)
+}
 
-# Make the 'Date' column the index.
+# Make the 'Date' column the index after convering dates to strings.
 prices <- closing_values
 prices['Date'] <- lapply(prices['Date'], date_to_str)
 prices <- prices[,!names(prices) %in% c("Date")]
@@ -222,18 +181,32 @@ row.names(prices) <- closing_values[,"Date"]
 head(prices, 1)
 
 price_correlations <- cor(prices, method="pearson", use="pairwise.complete.obs")
-price_correlations
-# heatmap(price_correlations, symm=TRUE)
 price_correlations_plotting <- melt(price_correlations)
-price_correlations_plotting
-#price_correlations_plotting["pos"] <- cumsum()
+# Ensure plotting order is the same as column order, which is 
+# the same as in the Python version of this figure.
+price_correlations_plotting$Var1 <-
+  factor(price_correlations_plotting$Var1,
+         levels=c('Numeraire (NMR)', 'Ripple (XRP)', 'Ethereum Classic (ETC)', 
+                  'Stratis (STRAT)', 'BitConnect (BCC)',
+                  'Waves (WAVES)', 'Ethereum (ETH)', 'Nem (XEM)', 'Neo (NEO)',
+                  'Bitcoin (BTC)', 'Litecoin (LTC)', 'Dash (DASH)', 'Monero (XMR)',
+                  'Bitcoin Cash (BCH)', 'Omisego (OMG)', 'Iota (MIOTA)', 'Qtum (QTUM)'))
+price_correlations_plotting$Var2 <-
+  factor(price_correlations_plotting$Var2,
+         levels=rev(c('Numeraire (NMR)', 'Ripple (XRP)', 'Ethereum Classic (ETC)', 
+                  'Stratis (STRAT)', 'BitConnect (BCC)',
+                  'Waves (WAVES)', 'Ethereum (ETH)', 'Nem (XEM)', 'Neo (NEO)',
+                  'Bitcoin (BTC)', 'Litecoin (LTC)', 'Dash (DASH)', 'Monero (XMR)',
+                  'Bitcoin Cash (BCH)', 'Omisego (OMG)', 'Iota (MIOTA)', 'Qtum (QTUM)')))
 ggplot(price_correlations_plotting, aes(Var1, Var2))+ 
   geom_tile(aes(fill=value), colour="white") +
   geom_text(aes(label = round(value, 2)), size=2) +
   theme(# Orient x-axis tick labels vertically.
         axis.text.x = element_text(angle=90, hjust=1)) +
   xlab("Name") +
-  ylab("Name")
+  ylab("Name") +
+  # Remove legend title.
+  labs(fill="")
 filename <- "correlations.png"
 ggsave(filename, path='figures')
 
@@ -244,24 +217,103 @@ is_na_prices <- as.data.frame(is.na(prices))
 is_na_prices['Date'] <- row.names(is_na_prices)
 is_na_prices <- melt(is_na_prices, id.vars='Date', variable.name='Currency')
 is_na_prices['value'] <- lapply(is_na_prices['value'], as.numeric)
-closing_values[,"Date"]
 is_na_prices['Date'] <- closing_values["Date"]
-class(is_na_prices[1,'Date'])
-head(is_na_prices)
+
+# Reverse the order of records for plotting
+rownames(is_na_prices_reversed) <- NULL
+# Reverse date order to match Python figure.
+# Credit to https://stackoverflow.com/a/43626186/5449970.
+c_trans <- function(a, b, breaks = b$breaks, format = b$format) {
+  a <- as.trans(a)
+  b <- as.trans(b)
+  
+  name <- paste(a$name, b$name, sep = "-")
+  
+  trans <- function(x) a$trans(b$trans(x))
+  inv <- function(x) b$inverse(a$inverse(x))
+  
+  trans_new(name, trans, inv, breaks, format)
+}
+rev_date <- c_trans("reverse", "time")
+is_na_prices[,'Date']
 ggplot(is_na_prices, aes(Currency, Date, group=1)) + 
   geom_tile(aes(fill=value)) +#, colour="white") +
   theme(# Orient x-axis tick labels vertically.
     axis.text.x = element_text(angle=90, hjust=1, size=6),
     axis.text.y = element_text(size=6)) +
-  scale_y_datetime(breaks = date_breaks("9 weeks"), labels = date_format("%Y-%m"))
+  scale_y_continuous(trans = rev_date) +
+  # Remove legend title.
+  labs(fill="")
 filename <- "absent_values.png"
 ggsave(filename, path='figures')
 
-# currencies_labels_tickers_to_remove <- c(c('Bitcoin Cash', 'BCH'), ['BitConnect', 'BCC'], ['Ethereum Classic', 'ETC'],
-#                                          ['Iota', 'MIOTA'], ['Neo', 'NEO'], ['Numeraire', 'NMR'], ['Omisego', 'OMG'],
-#                                          ['Qtum', 'QTUM'], ['Stratis', 'STRAT'], ['Waves', 'WAVES'])
-# currencies_labels_to_remove = currencies_labels_tickers_to_remove[:, 0]
-# currencies_tickers_to_remove = currencies_labels_tickers_to_remove[:, 1]
-# currencies_labels_and_tickers_to_remove = ["{} ({})".format(currencies_label, currencies_ticker)
-#                                            for currencies_label, currencies_ticker in
-#                                            zip(currencies_labels_to_remove, currencies_tickers_to_remove)]
+currencies_labels_tickers_to_remove <- 
+  matrix(c('Bitcoin Cash', 'BCH', 'BitConnect', 'BCC', 'Ethereum Classic', 'ETC',
+           'Iota', 'MIOTA', 'Neo', 'NEO', 'Numeraire', 'NMR', 'Omisego', 'OMG',
+           'Qtum', 'QTUM', 'Stratis', 'STRAT', 'Waves', 'WAVES'), 10, 2, byrow=TRUE)
+currencies_labels_to_remove = currencies_labels_tickers_to_remove[, 1]
+currencies_tickers_to_remove = currencies_labels_tickers_to_remove[, 2]
+num_currencies_to_remove <- dim(currencies_labels_tickers_to_remove)[1]
+currencies_labels_and_tickers_to_remove <- vector("list", num_currencies_to_remove)
+for (i in seq(1,num_currencies_to_remove)) {
+  currency_label_to_remove <- currencies_labels_to_remove[i]
+  currency_ticker_to_remove <- currencies_tickers_to_remove[i]
+  currencies_labels_and_tickers_to_remove[i] <- sprintf("%s (%s)", currency_label_to_remove, currency_ticker_to_remove)
+}
+subset_prices <- prices[!(names(prices) %in% currencies_labels_and_tickers_to_remove)]
+subset_num_currencies <- dim(subset_prices)[2]
+subset_currencies_labels <- vector("list", subset_num_currencies)
+subset_currencies_tickers <- vector("list", subset_num_currencies)
+subset_currencies_labels_and_tickers <- vector("list", subset_num_currencies)
+subset_current_currency_index <- 1
+for (i in seq(1,num_currencies)) {
+  currency_label <- currencies_labels[i]
+  currency_ticker <- currencies_tickers[i]
+  if (!(currency_label %in% currencies_labels_to_remove)) {
+    subset_currencies_labels[subset_current_currency_index] <- 
+      currency_label
+    subset_currencies_tickers[subset_current_currency_index] <- 
+      currency_ticker
+    subset_current_currency_label <- subset_currencies_labels[subset_current_currency_index]
+    subset_current_currency_ticker <- subset_currencies_tickers[subset_current_currency_index]
+    subset_currencies_labels_and_tickers[subset_current_currency_index] <- 
+      sprintf("%s (%s)", subset_current_currency_label, 
+              subset_current_currency_ticker)
+    subset_current_currency_index <- subset_current_currency_index + 1
+  }
+}
+subset_prices_nonan <- subset_prices[complete.cases(subset_prices),]
+
+# Volatility Examination
+
+num_non_nan_days = dim(subset_prices_nonan)[1]
+# Find the returns.
+returns <- subset_prices_nonan
+for (currency in colnames(subset_prices_nonan)) {
+  returns[,currency] <- Delt(subset_prices_nonan[,currency])[,1]
+}
+# Find the standard deviations in returns.
+returns_2017 <- returns[row.names(returns) >= "2017-01-01" & row.names(returns) < "2018-01-01",]
+returns_2017_melted <- melt(returns_2017)
+returns_std_2017 <- ddply(returns_2017_melted, c('variable'), summarize, sd = sd(value))
+returns_std_2017 <- returns_std_2017[with(returns_std_2017, order(-sd)),]
+# Reset row names (indices).
+row.names(returns_std_2017) <- NULL
+# Ensure plotting order is same as column order.
+returns_std_2017$variable <- factor(returns_std_2017$variable, levels=returns_std_2017$variable)
+ggplot(returns_std_2017, aes(variable, fill=variable)) + 
+  scale_y_continuous(breaks=seq(0,0.14,0.02)) +
+  geom_bar(aes(weight=sd)) +
+  xlab("Name") +
+  ylab("Volatility") +
+  ggtitle("Volatility (2017)") +
+  # Center the title
+  theme(plot.title = element_text(hjust = 0.5),
+      # Remove legend on right.
+      legend.position="none")
+filename <- "volatility.png"
+ggsave(filename, path='figures')
+
+# Data Extraction
+
+

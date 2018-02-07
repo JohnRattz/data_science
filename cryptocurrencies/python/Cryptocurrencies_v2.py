@@ -80,7 +80,11 @@ def main():
     # Convert the timestamps to strings with less length for y-axis labels.
     old_prices_index = prices.index
     prices.index = prices.index.map(lambda date: date.strftime("%Y-%m-%d"))
-    absent_values_fig = sns.heatmap(pd.isnull(prices)).get_figure()
+    is_null_prices = pd.isnull(prices)
+    # Select dates every 120 days for tick labels.
+    ax = sns.heatmap(is_null_prices, yticklabels=120)
+    absent_values_fig = ax.get_figure()
+    plt.tight_layout()
     prices.index = old_prices_index
     absent_values_fig.savefig('{}/absent_values.png'.format(figures_dir))
 
