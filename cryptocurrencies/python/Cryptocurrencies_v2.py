@@ -5,6 +5,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import warnings
 
+from sklearn.metrics import make_scorer, r2_score
+from sklearn.model_selection import GridSearchCV
+
 from cryptocurrencies.python.ETL import load_csvs, load_sql
 
 warnings.simplefilter('ignore')
@@ -164,7 +167,7 @@ def main():
         model_knn = KNeighborsRegressor()
         params_knn = {'n_neighbors': [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
                       'weights': ['uniform', 'distance'],
-                      'algorithm': ['ball_tree', 'kd_tree', 'brute', 'auto'],
+                      'algorithm': ['auto'],
                       'leaf_size': [5, 10, 20, 30, 40, 50, 60]}
 
         # Collect models for use in GridSearchCV.
@@ -177,8 +180,6 @@ def main():
         # Specify the cross validation method.
         from sklearn.model_selection import KFold
         cv = KFold(n_splits=5, shuffle=True, random_state=42)
-
-        # Scoring
 
         # # Create the models.
         # import multiprocessing
