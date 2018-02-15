@@ -339,6 +339,7 @@ y <- data[seq(window_size+1,dim(data)[1]),]
 colnames(y) <- subset_currencies_labels
 # Merge X and y for at least the rfsrc regressor.
 row.names(y) <- NULL
+# TODO: Check why there are anomalous low values added.
 X_y = merge(x=X,y=y,by="row.names")
 X_y<- X_y[,!(names(X_y) %in% c('Row.names'))]
 
@@ -385,33 +386,53 @@ params_knn = expand.grid(k = seq(5,5))
 #                   trControl = train_control,
 #                   tuneGrid = params_knn)
 
-models = c('extraTrees', 'knn')#('extraTrees', 'rf', 'knn')
+model_names = c('extraTrees', 'knn')#('extraTrees', 'rf', 'knn')
 param_sets = list()
 param_sets[[1]] = params_extra_trees
 param_sets[[2]] = params_knn
 # param_sets = c(params_knn)#(params_extra_trees, params_random_forest, params_knn)
 
 # Scores and the corresponding models
-scores = vector(length = length(models))
-models_built = vector(length = length(models))
-# score_model_tuples = data.frame(score=rep(NA,length(models)),
-#                                 model=rep(NA,length(models)))
+scores = vector(length = length(model_names))
+models_built = vector(length = length(model_names))
+# score_model_tuples = data.frame(score=rep(NA,length(model_names)),
+#                                 model=rep(NA,length(model_names)))
 
-#(nrow=length(models), ncol=2)
+#(nrow=length(model_names), ncol=2)
 
-for (i in seq(length(models))) {
-  print(models[i])
-  print(param_sets[[i]])  
-  model = train(form = Bitcoin + Dash + Ethereum + Litecoin +
-                  Monero + Nem + Ripple ~ .,
-                data = X_y,
-                method = models[i],
-                metric = "Rsquared",
-                trControl = train_control,
-                tuneGrid = param_sets[[i]],
-                # ExtraTrees parameters
-                numThreads = num_cores/2)
-  score = model$results$Rsquared[as.numeric(row.names(model$bestTune))]
+for (i in seq(length(model_names))) {
+  print(model_names[i])
+  print(param_sets[[i]])
+  # CARET train() does not support multi-output models,
+  # so we will train one regressor for each currency.
+  model = vector(length = dim(y)[2])
+  # The average score for the regressors that comprise this model.
+  score = 0
+  num_cols = dim(y)[2]
+  for (j in seq(num_cols)) {
+    colname = colnames(y)[j]
+    submodel = train(x = X,
+                     y = y[[colname]],
+                     method = model_names[i],
+                     metric = "Rsquared",
+                     trControl = train_control,
+                     tuneGrid = param_sets[[i]],
+                     # ExtraTrees parameters
+                     numThreads = num_cores)    
+    score = score + submodel$results$Rsquared[as.numeric(row.names(submodel$bestTune))]
+    model[j] = lapply("submodel", get)
+  }
+  score = score / num_cols
+  # model = train(form = Bitcoin + Dash + Ethereum + Litecoin +
+  #                 Monero + Nem + Ripple ~ .,
+  #               data = X_y,
+  #               method = model_names[i],
+  #               metric = "Rsquared",
+  #               trControl = train_control,
+  #               tuneGrid = param_sets[[i]],
+  #               # ExtraTrees parameters
+  #               numThreads = num_cores/2)
+  # score = model$results$Rsquared[as.numeric(row.names(model$bestTune))]
   scores[i] = score
   models_built[i] = lapply("model", get)
   print("scores:"); print(scores)
@@ -423,9 +444,17 @@ model = score_model_tuples[order(score_model_tuples$score)[1],2][[1]]
 print(sprintf("Best model and score for window size %s: %s %s", window_size, model$method, best_score))
 
 # Validation and Visualization
-# Why does the model only output one value for each input vector?
-predict(model,X)
-
-for (window_size in window_sizes) {
-  
+multioutput_predict <- function(submodels, X) {
+  out_mat = matrix(nrow=dim(X)[1], ncol=length(submodels), byrow=FALSE)
+  # Acquire predictions for the currencies from the regressors.
+  for (i in seq(length(submodels))) {
+    out_mat[,i] = predict(submodels[i],X)[[1]]
+  }
+  return(out_mat)
 }
+pred = multioutput_predict(model,X)
+predict(model[1],X)
+
+# for (window_size in window_sizes) {
+  
+# }
