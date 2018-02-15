@@ -1,9 +1,62 @@
 library(RMySQL)
 library(ggplot2)
+library(grid)
+library(gridExtra)
 library(reshape2)
 library(scales)
 library(quantmod)
 library(plyr)
+
+# Multiple plot function 
+# (full credit to http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/)
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  print(...)
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+models_dir = 'models'
+figures_dir = 'figures'
+figure_dpi = 200
 
 READ_FROM_CSV = TRUE
 
@@ -453,8 +506,51 @@ multioutput_predict <- function(submodels, X) {
   return(out_mat)
 }
 pred = multioutput_predict(model,X)
-predict(model[1],X)
+colnames(pred) = colnames(y)
+pred = as.data.frame(pred)
+pred_plotting = pred
+pred_plotting['Date'] = dates[(window_size+1):length(dates)]
+pred_plotting['Date'] = lapply(pred_plotting['Date'],str_to_datelt)
 
+subset_num_cols = 2
+subset_num_rows = ceiling(subset_num_currencies / subset_num_cols)
+plots = list(length = subset_num_currencies)
+for (i in seq(subset_num_currencies)) {
+  currency_label = subset_currencies_labels[[i]]
+  currency_label_no_spaces = gsub(" ", "_", currency_label)
+  currency_ticker = subset_currencies_tickers[[i]]
+  # Collective plot
+  plots[[i]] = 
+    ggplot(data = data.frame()) +
+    geom_line(aes(pred_plotting[,'Date'],y[,currency_label], group=1), color="blue", alpha=0.5) +
+    geom_line(aes(pred_plotting[,'Date'],pred_plotting[,currency_label], group=1), color="red", alpha=0.5) +
+    scale_x_datetime(breaks = pretty(pred_plotting$Date,n=8),labels = date_format("%Y-%m")) +
+    xlab("Date") +
+    ylab("Close") +
+    ggtitle(sprintf("%s (%s) Closing Value (%i day window)",
+                    currency_label, currency_ticker, window_size)) +
+  # Center the title
+  theme(plot.title = element_text(hjust = 0.5))
+  currency_figures_subdir = sprintf('%s/%s', figures_dir, currency_label_no_spaces)
+  ggsave(filename = sprintf('%s_validation_%i.png',currency_label_no_spaces, window_size),
+         path = currency_figures_subdir)
+}
+# collective_plot = multiplot(plotlist = plots, cols = subset_num_cols, layout = matrix(seq(1,8), nrow=4, byrow=TRUE))
+# grid.arrange(plots, nrow=1)
+collective_plot = 
+  do.call(arrangeGrob, 
+          c(plots, nrow = subset_num_rows))#, 
+            #widths = rep(12,subset_num_rows), 
+            #heights = rep(12,subset_num_rows)))
+ggsave(filename = sprintf('validation_%i.png', window_size),
+       path = figures_dir,
+       plot = collective_plot,
+       scale = 2)
+
+# Get the model's predictions for the rest of 2017 and 2018.
+
+
+# TODO: Make this the outer loop as in Python when done testing.
 # for (window_size in window_sizes) {
   
 # }
