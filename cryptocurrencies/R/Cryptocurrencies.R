@@ -418,8 +418,8 @@ for (i in seq(length(models))) {
   print("models_built:"); print(models_built)
 }
 score_model_tuples = data.frame(score = I(scores), models = I(models_built))
-best_score = score_model_tuples[order(score_model_tuples$score)[1],1]
-model = score_model_tuples[order(score_model_tuples$score)[1],2]
+best_score = score_model_tuples[order(score_model_tuples$score)[1],1][[1]]
+model = score_model_tuples[order(score_model_tuples$score)[1],2][[1]]
 print(sprintf("Best model and score for window size %s: %s %s", window_size, model$method, best_score))
 
 # Validation and Visualization
