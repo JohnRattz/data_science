@@ -7,53 +7,6 @@ library(scales)
 library(quantmod)
 library(plyr)
 
-# Multiple plot function 
-# (full credit to http://www.cookbook-r.com/Graphs/Multiple_graphs_on_one_page_(ggplot2)/)
-#
-# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
-# - cols:   Number of columns in layout
-# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
-#
-# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
-# then plot 1 will go in the upper left, 2 will go in the upper right, and
-# 3 will go all the way across the bottom.
-#
-multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
-  library(grid)
-  print(...)
-  # Make a list from the ... arguments and plotlist
-  plots <- c(list(...), plotlist)
-  
-  numPlots = length(plots)
-  
-  # If layout is NULL, then use 'cols' to determine layout
-  if (is.null(layout)) {
-    # Make the panel
-    # ncol: Number of columns of plots
-    # nrow: Number of rows needed, calculated from # of cols
-    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
-                     ncol = cols, nrow = ceiling(numPlots/cols))
-  }
-  
-  if (numPlots==1) {
-    print(plots[[1]])
-    
-  } else {
-    # Set up the page
-    grid.newpage()
-    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
-    
-    # Make each plot, in the correct location
-    for (i in 1:numPlots) {
-      # Get the i,j matrix positions of the regions that contain this subplot
-      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
-      
-      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
-                                      layout.pos.col = matchidx$col))
-    }
-  }
-}
-
 models_dir = 'models'
 figures_dir = 'figures'
 figure_dpi = 200
@@ -535,7 +488,6 @@ for (i in seq(subset_num_currencies)) {
   ggsave(filename = sprintf('%s_validation_%i.png',currency_label_no_spaces, window_size),
          path = currency_figures_subdir)
 }
-# collective_plot = multiplot(plotlist = plots, cols = subset_num_cols, layout = matrix(seq(1,8), nrow=4, byrow=TRUE))
 # grid.arrange(plots, nrow=1)
 collective_plot = 
   do.call(arrangeGrob, 
@@ -548,8 +500,47 @@ ggsave(filename = sprintf('validation_%i.png', window_size),
        scale = 2)
 
 # Get the model's predictions for the rest of 2017 and 2018.
+last_data_date = closing_values[nrow(closing_values),'Date']
+first_extrapolation_date = last_data_date + 24*60*60
+last_extrapolation_date = str_to_datelt('2018-12-31')
+extrapolation_dates = seq(first_extrapolation_date,
+                          last_extrapolation_date,
+                          24*60*60)
+num_extrapolation_dates = length(extrapolation_dates)
+extrapolation_X = matrix(0, nrow = num_extrapolation_dates, ncol = subset_num_currencies * window_size, byrow=TRUE)
+colnames(extrapolation_X) = colnames(X)
+extrapolation_y = matrix(0, nrow = num_extrapolation_dates, ncol = subset_num_currencies, byrow=TRUE)
 
+# First `window_size` windows contain known values.
+given_prices = subset_prices_nonan
+row.names(given_prices) = NULL
+given_prices = as.vector(t(given_prices[(nrow(given_prices)-window_size+1):nrow(given_prices),]))
+extrapolation_X[1,] = given_prices
+extrapolation_y[1,] = multioutput_predict(model, extrapolation_X)[1,]
+for (i in seq(window_size-1)) {
+  # i = seq(window_size-1)[1]#[window_size-1]
+  given_prices = as.vector(t(subset_prices_nonan[(nrow(subset_prices_nonan)-window_size+i+1):nrow(subset_prices_nonan),]))
+  previous_predicted_prices = as.vector(t(extrapolation_y[1:i,]))
+  extrapolation_X[i+1,] = append(given_prices, previous_predicted_prices)
+  extrapolation_y[i+1,] = multioutput_predict(model, extrapolation_X)[i+1,]
+  # print(sprintf("extrapolation_X[%s,]:", i+1))
+  # print(extrapolation_X[i+1,])
+}
+# Remaining windows contain only predicted values (predicting based on previous predictions).
+for (i in seq(window_size, num_extrapolation_dates-1)) {
+  # i = seq(window_size, num_extrapolation_dates-1)[1]
+  previous_predicted_prices = as.vector(t(extrapolation_y[(i-window_size+1):i,]))
+  # print(previous_predicted_prices)
+  # print(length(previous_predicted_prices))
+  extrapolation_X[i+1,] = previous_predicted_prices
+  extrapolation_y[i+1,] = multioutput_predict(model, extrapolation_X)[i+1,]
+}
 
+# Plot the predictions for the rest of 2017 and 2018.
+for (i in range(subset_num_currencies)) {
+  
+}
+  
 # TODO: Make this the outer loop as in Python when done testing.
 # for (window_size in window_sizes) {
   
