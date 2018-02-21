@@ -210,9 +210,9 @@ def main():
 
         # Validation and Visualization
 
-        # Plot the actual values along with the predictions. They should overlap.
         pred = model.predict(X)
 
+        # Plot the actual values along with the predictions. They should overlap.
         subset_num_cols = 2
         subset_num_rows = int(np.ceil(subset_num_currencies / subset_num_cols))
         collective_fig = plt.figure(figsize=(12 * subset_num_cols, 6 * subset_num_rows))
@@ -262,33 +262,13 @@ def main():
         for i in range(1, window_size):
             given_prices = subset_prices_nonan[-window_size + i:].values.flatten()
             previous_predicted_prices = extrapolation_y[:i].flatten()
-            # print(extrapolation_X.shape)
-            # print("extrapolation_X[0]", extrapolation_X[0])
-            # print(extrapolation_X[0].reshape(1, -1).shape)
-            # print(extrapolation_y.shape)
-            # print("extrapolation_y[0]", extrapolation_y[0])
-            # print(subset_prices_nonan.shape)
-            # print(subset_prices_nonan[-window_size:].shape)
-            # print("subset_prices_nonan.iloc[0]:", subset_prices_nonan.iloc[0])
-            # print("subset_prices_nonan.iloc[1]:", subset_prices_nonan.iloc[1])
-            # print("given_prices:", given_prices)
-            # print(given_prices.shape)
-            # print(previous_predicted_prices)
-            # print(previous_predicted_prices.shape)
             extrapolation_X[i] = np.concatenate((given_prices, previous_predicted_prices))
             extrapolation_y[i] = model.predict(extrapolation_X[i].reshape(1, -1)).flatten()
-            # print("extrapolation_X[{}]: {}".format(i, extrapolation_X[i]))
-            # print("extrapolation_y[{}]: {}".format(i, extrapolation_y[i]))
-        # print("extrapolation_X[:,0]", extrapolation_X[:,0])
-        # print("extrapolation_y[:,0]", extrapolation_y[:, 0])
         # Remaining windows contain only predicted values (predicting based on previous predictions).
         for i in range(window_size, num_extrapolation_dates):
             previous_predicted_prices = extrapolation_y[i - window_size:i].flatten()
-            # print(previous_predicted_prices)
-            # print(previous_predicted_prices.shape)
             extrapolation_X[i] = previous_predicted_prices
             extrapolation_y[i] = model.predict(extrapolation_X[i].reshape(1, -1)).flatten()
-            # print("extrapolation_y[{}]: {}".format(i, extrapolation_y[i]))
 
         # Plot the predictions for the rest of 2017 and 2018.
         for i in range(subset_num_currencies):
