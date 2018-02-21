@@ -35,7 +35,7 @@ histories ("value trends" in the notebook) for the various cryptocurrencies.
 
 The machine learning models that would be trained if the commented block 
 of code above the "Model Loading" section in **Cryptocurrencies_v2.py** 
-were uncommented and run are stored in the **models** subfolder. 
+was uncommented and run are stored in the **models** subfolder. 
 If **Cryptocurrencies_v2.py** is run, figures are stored in the **figures**
 subfolder. Figures directly in that subfolder contain multiple plots per figure. 
 Figures containing plots of one cryptocurrency each are in corresponding 
@@ -49,4 +49,7 @@ I recommend running with RStudio - I have not run the script from any other IDE,
 including the default R IDE.
 
 The R script outputs the same files in the same subdirectories as the 
-Python script.
+Python script. The figures directly in the **figures** subfolder which contain
+multiple plots per figure are incorrect - repeating the corresponding Ripple figure
+for each cell. I am still unsure of why this happens. Combining plots in ggplot2
+has proven to be significantly more complicated than in matplotlib.
