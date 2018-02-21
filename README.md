@@ -12,14 +12,16 @@ This was my first project.
 This project analyzed cryptocurrency trends and attempted
 to predict future values of the currencies based on their 
 previous values, but the predictions from the machine learning 
-model did not closely follow the real values for dates after 
+models did not closely follow the real values for dates after 
 the end of the data. Predicting future values for financial assets 
 based purely on their previous values generally will not
 create very accurate models, especially in a highly volatile
 market like the cryptocurrency market in the latter half of 2017 
 through the beginning of 2018. Still, it showcases my understanding 
 of various Python and R data analysis and data visualization libraries. 
+
 For Python, I used the NumPy, pandas, seaborn, Matplotlib, Plotly, and Cufflinks libraries. 
+
 For R, I used the ggplot2 and caret libraries, among several other smaller libraries and the builtin library.
 
 The data is [from Kaggle](https://www.kaggle.com/sudalairajkumar/cryptocurrencypricehistory)
