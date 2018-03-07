@@ -8,7 +8,7 @@ import warnings
 from sklearn.metrics import make_scorer, r2_score
 from sklearn.model_selection import GridSearchCV
 
-from cryptocurrencies.python.ETL import load_csvs, load_sql
+from cryptocurrencies.Python.ETL import load_csvs, load_sql
 
 warnings.simplefilter('ignore')
 import seaborn as sns
@@ -23,11 +23,11 @@ def main():
     figure_dpi = 200
 
     # Data Importing (SQL)
-    bitcoin, bitcoin_cash, bitconnect, dash, ethereum, ethereum_classic, iota, litecoin, \
-    monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_sql()
-    # Data Importing (CSV)
     # bitcoin, bitcoin_cash, bitconnect, dash, ethereum, ethereum_classic, iota, litecoin, \
-    # monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_csvs()
+    # monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_sql()
+    # Data Importing (CSV)
+    bitcoin, bitcoin_cash, bitconnect, dash, ethereum, ethereum_classic, iota, litecoin, \
+    monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_csvs()
 
     currencies_labels_tickers = np.array(
         [['Bitcoin Cash', 'BCH'], ['Bitcoin', 'BTC'], ['BitConnect', 'BCC'], ['Dash', 'DASH'],

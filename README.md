@@ -30,7 +30,7 @@ and is stored in the **data** subfolder.
 ### Python
 
 Check out the IPython notebook (**Cryptocurrencies_v2.ipynb**) 
-in the **python** subdirectory for a nice Plotly interactive plot of the value 
+in the **Python** subdirectory for a nice Plotly interactive plot of the value 
 histories ("value trends" in the notebook) for the various cryptocurrencies.
 
 The machine learning models that would be trained if the commented block 
@@ -53,3 +53,9 @@ Python script. The figures directly in the **figures** subfolder which contain
 multiple plots per figure are incorrect - repeating the corresponding Ripple figure
 for each cell. I am still unsure of why this happens. Combining plots in ggplot2
 has proven to be significantly more complicated than in matplotlib.
+
+### Tableau
+
+Check out the Tableau workbook (**Cryptocurrencies.twb**) in the **Tableau** subdirectory.
+The correlation matrix was omitted. It can be created with R code in Tableau, but I could
+not figure out how to create it using only Tableau's built in functionality.
