@@ -13,6 +13,22 @@ from cryptocurrencies.Python.ETL import load_csvs, load_sql
 warnings.simplefilter('ignore')
 import seaborn as sns
 
+
+def pandas_dt_to_str(date):
+    """
+    Prints pandas `Datetime` objects as strings.
+    """
+    return date.strftime("%Y-%m-%d")
+
+
+def numpy_dt64_to_str(date):
+    """
+    Prints NumPy `datetime64` objects as strings.
+    """
+    pd_datetime = pd.to_datetime(str(date))
+    return pandas_dt_to_str(pd_datetime)
+
+
 def main():
     models_dir = 'models'
     if not os.path.exists(models_dir):
@@ -37,11 +53,12 @@ def main():
     currencies_labels = currencies_labels_tickers[:, 0]
     currencies_tickers = currencies_labels_tickers[:, 1]
     currencies_labels_and_tickers = ["{} ({})".format(currencies_label, currencies_ticker)
-                                 for currencies_label, currencies_ticker in zip(currencies_labels, currencies_tickers)]
+                                     for currencies_label, currencies_ticker in
+                                     zip(currencies_labels, currencies_tickers)]
     num_currencies = len(currencies_labels_tickers)
     currencies = pd.concat([bitcoin_cash, bitcoin, bitconnect, dash, ethereum_classic, ethereum, iota,
-                        litecoin, monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves],
-                       axis=1, keys=currencies_labels_and_tickers)
+                            litecoin, monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves],
+                           axis=1, keys=currencies_labels_and_tickers)
     currencies.columns.names = ['Name', 'Currency Info']
     currencies.set_index(pd.to_datetime(currencies.index), inplace=True)
     currencies.index.name = 'Date'
@@ -79,10 +96,9 @@ def main():
     # Removing Currencies with Short Histories
 
     # See where values are absent and keep only currencies with reasonably lengthy histories.
-    print("Heatmap showing absent values:")
     # Convert the timestamps to strings with less length for y-axis labels.
     old_prices_index = prices.index
-    prices.index = prices.index.map(lambda date: date.strftime("%Y-%m-%d"))
+    prices.index = prices.index.map(lambda date: pandas_dt_to_str(date))
     is_null_prices = pd.isnull(prices)
     # Select dates every 120 days for tick labels.
     ax = sns.heatmap(is_null_prices, yticklabels=120)
@@ -105,7 +121,7 @@ def main():
     subset_currencies_labels = [currency_label for currency_label in currencies_labels
                                 if currency_label not in currencies_labels_to_remove]
     subset_currencies_tickers = [currency_ticker for currency_ticker in currencies_tickers
-                                if currency_ticker not in currencies_tickers_to_remove]
+                                 if currency_ticker not in currencies_tickers_to_remove]
     subset_currencies_labels_and_tickers = subset_prices.columns.values
     subset_num_currencies = len(subset_prices.columns)
     subset_prices_nonan = subset_prices.dropna()
@@ -117,9 +133,13 @@ def main():
     num_non_nan_days = len(subset_prices_nonan)
     print("Considering {} days of price information (as many as without NaN values)".format(num_non_nan_days))
     # Find the returns.
-    returns = subset_prices_nonan.pct_change()
+    returns = prices.pct_change()
+    log_returns = np.log(prices / prices.shift(1))
+    # Returns for only the 7 selected currencies.
+    subset_returns = subset_prices_nonan.pct_change()
+
     # Find the standard deviations in returns.
-    returns_std_yearly = returns.groupby(subset_prices_nonan.index.year).std()
+    returns_std_yearly = subset_returns.groupby(subset_prices_nonan.index.year).std()
     # Standard deviations in returns for 2017 in descending order.
     returns_std_2017 = returns_std_yearly.loc[2017]
     returns_std_2017.sort_values(ascending=False, inplace=True)
@@ -129,6 +149,107 @@ def main():
     plt.title('Volatility (2017)')
     plt.savefig('{}/volatility.png'.format(figures_dir), dpi=figure_dpi)
 
+    # Find (daily) asset betas (covariance_with_market / market_variance).
+    returns_cov = log_returns.cov()
+    # print(returns_cov.head())
+    betas = pd.Series(index=log_returns.columns)
+    # The index of the column in `betas` corresponding to the market index (Bitcoin)
+    market_index = "Bitcoin (BTC)"
+    market_index_index = betas.index.get_loc(market_index)
+    for i, label_and_ticker in enumerate(betas.index):
+        cov_with_market = returns_cov.iloc[i, market_index_index]
+        # print("cov_with_market: ", cov_with_market)
+        market_var = returns_cov.iloc[market_index_index, market_index_index]
+        # print("market_var: ", market_var)
+        betas[label_and_ticker] = cov_with_market / market_var
+    betas.sort_values(inplace=True)
+    # TODO: Create a visualization with the beta values.
+    # print("betas: ", betas)
+
+    # Find assets' rates of return according to CAPM:
+    return_risk_free = 0  # 0.025 # RoR of 10 year US government bond
+    return_market = returns[market_index].mean()
+    # print("return_market: ", return_market)
+    risk_premium = return_market - return_risk_free
+    # print("risk_premium: ", risk_premium )
+    rates_of_return = pd.Series(index=betas.index)  # log_returns.columns)
+    for i, label_and_ticker in enumerate(rates_of_return.index):
+        rates_of_return[i] = return_risk_free + betas[label_and_ticker] * risk_premium
+    # print("Rates of return: ", rates_of_return)
+
+    # TODO: Calculate Sharpe ratios ((return_asset - return_risk_free)/std_asset)?
+
+    # Run Monte Carlo simulation to predict future values.
+    return_means = log_returns.mean(axis=0)
+    # print("\nreturn_means: {}\n".format(return_means))
+    return_vars = log_returns.var(axis=0)
+    # print("\nreturn_vars: {}\n".format(return_vars))
+    drifts = return_means - (0.5 * return_vars)
+    # print("\ndrifts: {}\n".format(drifts))
+    return_stds = log_returns.std(axis=0)
+    # print("\nreturn_stds: {}\n".format(return_stds))
+    from scipy.stats import norm
+    # print("Stdevs from mean for cumulative probability of 0.95 for a norm dist: ", norm.ppf(0.95))
+    # print("\nreturns.tail(): {}\n".format(returns.tail()))
+    last_data_date = log_returns.index[-1]
+    first_extrapolation_date = last_data_date + pd.DateOffset(days=1)
+    last_extrapolation_date = pd.to_datetime('2018-12-31')
+    extrapolation_dates = np.array(pd.date_range(first_extrapolation_date, last_extrapolation_date))
+    num_extrapolation_dates = len(extrapolation_dates)
+    # num_days_to_predict = 1000  # The number of days after the last date in the data to predict currency values for.
+    iterations = 50  # The number of times to run the simulation. The number of columns in `predicted_returns` below.
+    # print("first extrapolation date: ", numpy_dt64_to_str(extrapolation_dates[0]))
+    # print("date after last available: ", pandas_dt_to_str(last_extrapolation_date + pd.Timedelta(days=1)))
+    # print("last extrapolation date: ", numpy_dt64_to_str(extrapolation_dates[-1]))
+    # Predicted log returns.
+    monte_carlo_predicted_returns = {}  # pd.DataFrame(columns=log_returns.columns, index=extended_date_range)
+    for i, label_and_ticker in enumerate(log_returns.columns):
+        # `Z` is a model of Brownian motion.
+        Z = norm.ppf(np.random.rand(num_extrapolation_dates, iterations))
+        # print("shape: ", np.exp(np.array(drifts.loc[label_and_ticker]) + np.array(return_stds.loc[label_and_ticker]) * Z).shape)
+        monte_carlo_predicted_returns[label_and_ticker] = \
+            pd.DataFrame(data=np.exp(np.array(drifts.loc[label_and_ticker]) +
+                                     np.array(return_stds.loc[label_and_ticker]) * Z),
+                         index=extrapolation_dates)
+        # Row 0 contains the last date of known price information.
+        # index=pd.Index(np.append(np.array(last_extrapolation_date),
+        # extended_date_range)))
+        # print("predicted_returns[{}].shape: {}".format(label_and_ticker, predicted_returns[label_and_ticker].shape))
+    # print("\nlog_returns.tail(2): \n{}".format(log_returns.tail(2)))
+    # print("\npredicted_returns.head(2): \n{}".format(predicted_returns.head(2)))
+    # print("\npredicted_returns.tail(2): \n{}".format(predicted_returns.tail(2)))
+    # print("predicted_returns.shape: ", predicted_returns.shape)
+    initial_values = prices.iloc[-1]
+    # print("initial_values:\n", initial_values)
+    # For each cryptocurrency, for each date, there are `iterations` predicted values.
+    monte_carlo_predicted_values_ranges = pd.DataFrame(index=extrapolation_dates, columns=log_returns.columns)
+    # This `DataFrame` has one value for each cryptocurrency, for each date (the mean).
+    monte_carlo_predicted_values = pd.DataFrame(index=extrapolation_dates, columns=log_returns.columns)
+    for label_index, label_and_ticker in enumerate(log_returns.columns):
+        monte_carlo_predicted_values_ranges.iloc[0, label_index] = \
+            initial_values[label_and_ticker] * monte_carlo_predicted_returns[label_and_ticker].iloc[0].values
+        monte_carlo_predicted_values.iloc[0, label_index] = \
+            np.mean(monte_carlo_predicted_values_ranges.iloc[0, label_index])
+        for date_index in range(1, num_extrapolation_dates):
+            monte_carlo_predicted_values_ranges.iloc[date_index, label_index] = \
+                monte_carlo_predicted_values_ranges.iloc[date_index - 1, label_index] * \
+                monte_carlo_predicted_returns[label_and_ticker].iloc[date_index].values
+            monte_carlo_predicted_values.iloc[date_index, label_index] = \
+                np.mean(monte_carlo_predicted_values_ranges.iloc[date_index, label_index])
+    # print("predicted_values.head(2):\n", monte_carlo_predicted_values_ranges.head(2))
+    subset_monte_carlo_predicted_values_ranges = \
+        monte_carlo_predicted_values_ranges.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
+    subset_monte_carlo_predicted_values = \
+        monte_carlo_predicted_values.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
+    # plt.clf()
+    # monte_carlo_predicted_values.plot()
+    # subset_monte_carlo_predicted_values.plot()
+    # for date in monte_carlo_predicted_values_ranges.index:
+    #     values = np.array(monte_carlo_predicted_values_ranges.loc[date,'Bitcoin (BTC)'])
+    #     plt.plot(np.repeat(date, len(values)), values)
+    # plt.show()
+    # exit()
+
     # Data Extraction
 
     data = subset_prices_nonan.reset_index()
@@ -137,7 +258,7 @@ def main():
     # We will predict closing prices based on these numbers of days preceding the date of prediction.
     # The max `window_size` is `num_non_nan_days`, but some lower values may result in poor models due to small test sets
     # during cross validation, and possibly even training failures due to empty test sets for even larger values.
-    window_sizes = list(range(30, 361, 30)) # Window sizes measured in days - approximately 1 to 12 months.
+    window_sizes = list(range(30, 361, 30))  # Window sizes measured in days - approximately 1 to 12 months.
     for window_size in window_sizes:
         print("Predicting prices with a window of {} days of preceding currency values".format(window_size))
         num_windows = len(data) - window_size
@@ -221,13 +342,13 @@ def main():
             currency_label_no_spaces = currency_label.replace(' ', '_')
             currency_ticker = subset_currencies_tickers[i]
             # Collective plot
-            collective_ax_current = collective_fig.add_subplot(subset_num_rows, subset_num_cols, i+1)
+            collective_ax_current = collective_fig.add_subplot(subset_num_rows, subset_num_cols, i + 1)
             collective_ax_current.plot(dates[window_size:], y[:, i], color='blue', alpha=0.5, label='True')
             collective_ax_current.plot(dates[window_size:], pred[:, i], color='red', alpha=0.5, label='Predicted')
             collective_ax_current.set_xlabel('Date')
             collective_ax_current.set_ylabel('Close')
             collective_ax_current.set_title("{} ({}) Closing Value ({} day window)"
-                                   .format(currency_label, currency_ticker, window_size))
+                                            .format(currency_label, currency_ticker, window_size))
             collective_ax_current.legend()
             # Individual plot
             indiv_fig = plt.figure(figsize=(12, 6))
@@ -237,7 +358,7 @@ def main():
             indiv_fig_ax.set_xlabel('Date')
             indiv_fig_ax.set_ylabel('Close')
             indiv_fig_ax.set_title("{} ({}) Closing Value ({} day window)"
-                               .format(currency_label, currency_ticker, window_size))
+                                   .format(currency_label, currency_ticker, window_size))
             indiv_fig_ax.legend()
             currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
             if not os.path.exists(currency_figures_subdir):
@@ -248,11 +369,11 @@ def main():
         collective_fig.clf()
 
         # Get the model's predictions for the rest of 2017 and 2018.
-        last_data_date = data['Date'].iloc[-1]
-        first_extrapolation_date = last_data_date + pd.DateOffset(days=1)
-        last_extrapolation_date = '2018-12-31'
-        extrapolation_dates = np.array(pd.date_range(first_extrapolation_date, last_extrapolation_date))
-        num_extrapolation_dates = len(extrapolation_dates)
+        # last_data_date = data['Date'].iloc[-1]
+        # first_extrapolation_date = last_data_date + pd.DateOffset(days=1)
+        # last_extrapolation_date = '2018-12-31'
+        # extrapolation_dates = np.array(pd.date_range(first_extrapolation_date, last_extrapolation_date))
+        # num_extrapolation_dates = len(extrapolation_dates)
         extrapolation_X = np.zeros((num_extrapolation_dates, subset_num_currencies * window_size), dtype=np.float64)
         extrapolation_y = np.zeros((num_extrapolation_dates, subset_num_currencies), dtype=np.float64)
         # First `window_size` windows contain known values.
@@ -270,14 +391,29 @@ def main():
             extrapolation_X[i] = previous_predicted_prices
             extrapolation_y[i] = model.predict(extrapolation_X[i].reshape(1, -1)).flatten()
 
-        # Plot the predictions for the rest of 2017 and 2018.
+        ### Plotting ###
+        # The colors of lines for various things.
+        actual_values_color = 'blue'
+        actual_values_label = 'True'
+        ml_model_color = 'red'
+        ml_model_label = 'ML Model'
+        monte_carlo_color = 'green'
+        monte_carlo_label = 'Monte Carlo AVG'
+
+        # Plot predictions for the rest of 2017 and 2018.
         for i in range(subset_num_currencies):
             currency_label = subset_currencies_labels[i]
             currency_label_no_spaces = currency_label.replace(' ', '_')
             currency_ticker = subset_currencies_tickers[i]
+            label_and_ticker = "{} ({})".format(currency_label, currency_ticker)
             # Collective plot
             collective_ax_current = collective_fig.add_subplot(subset_num_rows, subset_num_cols, i + 1)
-            collective_ax_current.plot(extrapolation_dates, extrapolation_y[:, i], color='red')
+            # ML model predictions
+            collective_ax_current.plot(extrapolation_dates, extrapolation_y[:, i],
+                                       color=ml_model_color, label=ml_model_label)
+            # Monte Carlo predictions
+            collective_ax_current.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
+                                       color=monte_carlo_color, label=monte_carlo_label)
             collective_ax_current.set_xlabel('Date')
             collective_ax_current.set_ylabel('Close')
             collective_ax_current.set_title("{} ({}) Predicted Closing Value ({} day window)"
@@ -285,7 +421,12 @@ def main():
             # Individual plot
             indiv_fig = plt.figure(figsize=(12, 6))
             indiv_fig_ax = indiv_fig.add_subplot(111)
-            indiv_fig_ax.plot(extrapolation_dates, extrapolation_y[:, i], color='red')
+            # ML model predictions
+            indiv_fig_ax.plot(extrapolation_dates, extrapolation_y[:, i],
+                              color=ml_model_color, label=ml_model_label)
+            # Monte Carlo predictions
+            indiv_fig_ax.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
+                              color=monte_carlo_color, label=monte_carlo_label)
             indiv_fig_ax.set_xlabel('Date')
             indiv_fig_ax.set_ylabel('Close')
             indiv_fig_ax.set_title("{} ({}) Predicted Closing Value ({} day window)"
@@ -294,7 +435,7 @@ def main():
             if not os.path.exists(currency_figures_subdir):
                 os.makedirs(currency_figures_subdir)
             indiv_fig.savefig('{}/{}_predictions_{}.png'.format(currency_figures_subdir,
-                                                          currency_label_no_spaces, window_size), dpi=figure_dpi)
+                                                                currency_label_no_spaces, window_size), dpi=figure_dpi)
         collective_fig.savefig('{}/predictions_{}.png'.format(figures_dir, window_size), dpi=figure_dpi)
         collective_fig.clf()
 
@@ -303,10 +444,18 @@ def main():
             currency_label = subset_currencies_labels[i]
             currency_label_no_spaces = currency_label.replace(' ', '_')
             currency_ticker = subset_currencies_tickers[i]
+            label_and_ticker = "{} ({})".format(currency_label, currency_ticker)
             # Collective plot
             collective_ax_current = collective_fig.add_subplot(subset_num_rows, subset_num_cols, i + 1)
-            collective_ax_current.plot(dates[window_size:], y[:, i], color='blue', label='True')
-            collective_ax_current.plot(extrapolation_dates, extrapolation_y[:, i], color='red', label='Predicted')
+            # Actual values
+            collective_ax_current.plot(dates[window_size:], y[:, i],
+                                       color=actual_values_color, label=actual_values_label)
+            # ML model predictions
+            collective_ax_current.plot(extrapolation_dates, extrapolation_y[:, i],
+                                       color=ml_model_color, label=ml_model_label)
+            # Monte Carlo predictions
+            collective_ax_current.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
+                                       color=monte_carlo_color, label=monte_carlo_label)
             collective_ax_current.set_xlabel('Date')
             collective_ax_current.set_ylabel('Close')
             collective_ax_current.set_title("{} ({}) True + Predicted Closing Value ({} day window)"
@@ -315,8 +464,15 @@ def main():
             # Individual plot
             indiv_fig = plt.figure(figsize=(12, 6))
             indiv_fig_ax = indiv_fig.add_subplot(111)
-            indiv_fig_ax.plot(dates[window_size:], y[:, i], color='blue', label='True')
-            indiv_fig_ax.plot(extrapolation_dates, extrapolation_y[:, i], color='red', label='Predicted')
+            # Actual values
+            indiv_fig_ax.plot(dates[window_size:], y[:, i],
+                              color=actual_values_color, label=actual_values_label)
+            # ML model predictions
+            indiv_fig_ax.plot(extrapolation_dates, extrapolation_y[:, i],
+                              color=ml_model_color, label=ml_model_label)
+            # Monte Carlo predictions
+            indiv_fig_ax.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
+                              color=monte_carlo_color, label=monte_carlo_label)
             indiv_fig_ax.set_xlabel('Date')
             indiv_fig_ax.set_ylabel('Close')
             indiv_fig_ax.set_title("{} ({}) True + Predicted Closing Value ({} day window)"
@@ -326,7 +482,8 @@ def main():
             if not os.path.exists(currency_figures_subdir):
                 os.makedirs(currency_figures_subdir)
             plt.savefig('{}/{}_actual_plus_predictions_{}.png'.format(currency_figures_subdir,
-                                                                      currency_label_no_spaces, window_size), dpi=figure_dpi)
+                                                                      currency_label_no_spaces, window_size),
+                        dpi=figure_dpi)
         collective_fig.savefig('{}/actual_plus_predictions_{}.png'
                                .format(figures_dir, window_size), dpi=figure_dpi)
         plt.close('all')
