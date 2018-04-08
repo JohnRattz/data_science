@@ -197,7 +197,8 @@ def main():
     extrapolation_dates = np.array(pd.date_range(first_extrapolation_date, last_extrapolation_date))
     num_extrapolation_dates = len(extrapolation_dates)
     # num_days_to_predict = 1000  # The number of days after the last date in the data to predict currency values for.
-    iterations = 50  # The number of times to run the simulation. The number of columns in `predicted_returns` below.
+    # TODO: Increase `iterations` when finished programming.
+    iterations = 5  # The number of times to run the simulation. The number of columns in `predicted_returns` below.
     # print("first extrapolation date: ", numpy_dt64_to_str(extrapolation_dates[0]))
     # print("date after last available: ", pandas_dt_to_str(last_extrapolation_date + pd.Timedelta(days=1)))
     # print("last extrapolation date: ", numpy_dt64_to_str(extrapolation_dates[-1]))
@@ -268,66 +269,66 @@ def main():
         y = data.drop('Date', axis=1).values[window_size:]
 
         # Model Training
+        load_models = True
+        if not load_models:
+            # Ensemble models
+            from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor
+            # Extra-Trees regressor
+            model_extra_trees = ExtraTreesRegressor()
+            params_extra_trees = {'n_estimators': [500],
+                                  'min_samples_split': [2, 5, 10],
+                                  'max_features': ['auto', 'sqrt', 'log2']}
+            # Random forest regressor
+            model_random_forest = RandomForestRegressor()
+            params_random_forest = {'n_estimators': [500],
+                                    'min_samples_split': [2, 5, 10],
+                                    'max_features': ['auto', 'sqrt', 'log2']}
 
-        # Ensemble models
-        from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor
-        # Extra-Trees regressor
-        model_extra_trees = ExtraTreesRegressor()
-        params_extra_trees = {'n_estimators': [500],
-                              'min_samples_split': [2, 5, 10],
-                              'max_features': ['auto', 'sqrt', 'log2']}
-        # Random forest regressor
-        model_random_forest = RandomForestRegressor()
-        params_random_forest = {'n_estimators': [500],
-                                'min_samples_split': [2, 5, 10],
-                                'max_features': ['auto', 'sqrt', 'log2']}
+            # Neighbors models
+            from sklearn.neighbors import KNeighborsRegressor
+            # KNearestNeighbors regressor
+            model_knn = KNeighborsRegressor()
+            params_knn = {'n_neighbors': [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                          'weights': ['uniform', 'distance'],
+                          'algorithm': ['auto'],
+                          'leaf_size': [5, 10, 20, 30, 40, 50, 60]}
 
-        # Neighbors models
-        from sklearn.neighbors import KNeighborsRegressor
-        # KNearestNeighbors regressor
-        model_knn = KNeighborsRegressor()
-        params_knn = {'n_neighbors': [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-                      'weights': ['uniform', 'distance'],
-                      'algorithm': ['auto'],
-                      'leaf_size': [5, 10, 20, 30, 40, 50, 60]}
+            # Collect models for use in GridSearchCV.
+            models = [model_extra_trees, model_random_forest, model_knn]
+            param_sets = [params_extra_trees, params_random_forest, params_knn]
 
-        # Collect models for use in GridSearchCV.
-        models = [model_extra_trees, model_random_forest, model_knn]
-        param_sets = [params_extra_trees, params_random_forest, params_knn]
+            # Tuples of scores and the corresponding models
+            score_model_tuples = []
 
-        # Tuples of scores and the corresponding models
-        score_model_tuples = []
+            # Specify the cross validation method.
+            from sklearn.model_selection import KFold
+            cv = KFold(n_splits=5, shuffle=True, random_state=42)
 
-        # Specify the cross validation method.
-        from sklearn.model_selection import KFold
-        cv = KFold(n_splits=5, shuffle=True, random_state=42)
-
-        # # Create the models.
-        # import multiprocessing
-        # num_cores = multiprocessing.cpu_count()
-        # for i in range(len(models)):
-        #     grid_search = GridSearchCV(models[i], param_sets[i],
-        #                                scoring=make_scorer(r2_score), cv=cv,
-        #                                n_jobs=int(num_cores/2), verbose=1)
-        #     grid_search.fit(X, y)
-        #     model = grid_search.best_estimator_
-        #     score = grid_search.best_score_
-        #     score_model_tuples.append((score, model))
-        # # Wait 1 second for printing from GridSearchCV to complete.
-        # import time
-        # time.sleep(1)
-        # # Choose the model with the best score.
-        # score_model_tuples.sort(key=lambda tup: tup[0], reverse=True)
-        # best_score = score_model_tuples[0][0]
-        # model = score_model_tuples[0][1]
-        # print("Best model and score for window size {}: {}".format(window_size, (model, best_score)))
-
-        # Model Loading
-
-        import pickle
-        model_pickle_path = "{}/model_{}.pkl".format(models_dir, window_size)
-        with open(model_pickle_path, "rb") as model_infile:
-            model = pickle.load(model_infile)
+            # # Create the models.
+            # import multiprocessing
+            # num_cores = multiprocessing.cpu_count()
+            # for i in range(len(models)):
+            #     grid_search = GridSearchCV(models[i], param_sets[i],
+            #                                scoring=make_scorer(r2_score), cv=cv,
+            #                                n_jobs=int(num_cores/2), verbose=1)
+            #     grid_search.fit(X, y)
+            #     model = grid_search.best_estimator_
+            #     score = grid_search.best_score_
+            #     score_model_tuples.append((score, model))
+            # # Wait 1 second for printing from GridSearchCV to complete.
+            # import time
+            # time.sleep(1)
+            # # Choose the model with the best score.
+            # score_model_tuples.sort(key=lambda tup: tup[0], reverse=True)
+            # best_score = score_model_tuples[0][0]
+            # model = score_model_tuples[0][1]
+            # print("Best model and score for window size {}: {}".format(window_size, (model, best_score)))
+        else:
+            # Model Loading
+            import pickle
+            model_pickle_path = "{}/model_{}.pkl".format(models_dir, window_size)
+            with open(model_pickle_path, "rb") as model_infile:
+                model = pickle.load(model_infile)
 
         # Validation and Visualization
 
@@ -400,6 +401,43 @@ def main():
         monte_carlo_color = 'green'
         monte_carlo_label = 'Monte Carlo AVG'
 
+        # Methods for more complex plots.
+        def monte_carlo_plot_confidence_band(ax, extrapolation_dates, monte_carlo_predicted_values_ranges,
+                                             label_and_ticker, confidence=0.95):
+            """
+            Plots a confidence band on `ax` (a `matplotlib.axes.Axes` object).
+
+            Parameters
+            ----------
+            ax: matplotlib.axes.Axes
+                The axes on which to plot the confidence band.
+            extrapolation_dates: numpy.ndarray
+                The dates being considered.
+            monte_carlo_predicted_values_ranges: pandas.DataFrame
+                A `DataFrame` of `ndarray` objects containing randomly generated values for `extrapolation_dates`.
+            label_and_ticker: str
+                The cryptocurrency being considered.
+            confidence: float
+                The fractional percent confidence for which to plot the band.
+            """
+            current_predicted_values_ranges = monte_carlo_predicted_values_ranges[label_and_ticker]
+            # The mean values for each extrapolation date for this cryptocurrency.
+            predicted_values_means = \
+                current_predicted_values_ranges.apply(lambda values: np.mean(values))
+            predicted_values_stds = \
+                current_predicted_values_ranges.apply(lambda values: np.std(values))
+            # A `DataFrame` of tuples containing the minimum and maximum values
+            # of the interval of desired confidence for each date.
+            min_max_values = pd.DataFrame(index=predicted_values_means.index)
+            # Record the minimum and maximum values for the confidence interval of each date.
+            for date in extrapolation_dates:
+                minimum, maximum = norm.interval(alpha=1-confidence, loc=predicted_values_means.loc[date],
+                                                 scale=predicted_values_stds.loc[date])
+                min_max_values.loc[date, 0] = minimum
+                min_max_values.loc[date, 1] = maximum
+            ax.fill_between(extrapolation_dates, min_max_values[0], min_max_values[1],
+                            color='cyan', label='Monte Carlo {:.0f}% Confidence Band'.format(confidence*100))
+
         # Plot predictions for the rest of 2017 and 2018.
         for i in range(subset_num_currencies):
             currency_label = subset_currencies_labels[i]
@@ -414,10 +452,14 @@ def main():
             # Monte Carlo predictions
             collective_ax_current.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
                                        color=monte_carlo_color, label=monte_carlo_label)
+            # Monte Carlo predictions (95% confidence interval)
+            monte_carlo_plot_confidence_band(collective_ax_current, extrapolation_dates,
+                                             monte_carlo_predicted_values_ranges, label_and_ticker)
             collective_ax_current.set_xlabel('Date')
             collective_ax_current.set_ylabel('Close')
             collective_ax_current.set_title("{} ({}) Predicted Closing Value ({} day window)"
                                             .format(currency_label, currency_ticker, window_size))
+            collective_ax_current.legend()
             # Individual plot
             indiv_fig = plt.figure(figsize=(12, 6))
             indiv_fig_ax = indiv_fig.add_subplot(111)
@@ -427,10 +469,14 @@ def main():
             # Monte Carlo predictions
             indiv_fig_ax.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
                               color=monte_carlo_color, label=monte_carlo_label)
+            # Monte Carlo predictions (95% confidence interval)
+            monte_carlo_plot_confidence_band(indiv_fig_ax, extrapolation_dates,
+                                             monte_carlo_predicted_values_ranges, label_and_ticker)
             indiv_fig_ax.set_xlabel('Date')
             indiv_fig_ax.set_ylabel('Close')
             indiv_fig_ax.set_title("{} ({}) Predicted Closing Value ({} day window)"
                                    .format(currency_label, currency_ticker, window_size))
+            indiv_fig_ax.legend()
             currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
             if not os.path.exists(currency_figures_subdir):
                 os.makedirs(currency_figures_subdir)
@@ -456,6 +502,9 @@ def main():
             # Monte Carlo predictions
             collective_ax_current.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
                                        color=monte_carlo_color, label=monte_carlo_label)
+            # Monte Carlo predictions (95% confidence interval)
+            monte_carlo_plot_confidence_band(collective_ax_current, extrapolation_dates,
+                                             monte_carlo_predicted_values_ranges, label_and_ticker)
             collective_ax_current.set_xlabel('Date')
             collective_ax_current.set_ylabel('Close')
             collective_ax_current.set_title("{} ({}) True + Predicted Closing Value ({} day window)"
@@ -473,6 +522,9 @@ def main():
             # Monte Carlo predictions
             indiv_fig_ax.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
                               color=monte_carlo_color, label=monte_carlo_label)
+            # Monte Carlo predictions (95% confidence interval)
+            monte_carlo_plot_confidence_band(indiv_fig_ax, extrapolation_dates,
+                                             monte_carlo_predicted_values_ranges, label_and_ticker)
             indiv_fig_ax.set_xlabel('Date')
             indiv_fig_ax.set_ylabel('Close')
             indiv_fig_ax.set_title("{} ({}) True + Predicted Closing Value ({} day window)"
@@ -488,9 +540,10 @@ def main():
                                .format(figures_dir, window_size), dpi=figure_dpi)
         plt.close('all')
 
-        # Save the model for this window size.
-        with open(model_pickle_path, "wb") as model_outfile:
-            pickle.dump(model, model_outfile)
+        if not load_models:
+            # Save the model for this window size.
+            with open(model_pickle_path, "wb") as model_outfile:
+                pickle.dump(model, model_outfile)
 
 
 if __name__ == '__main__':
