@@ -13,6 +13,7 @@ from cryptocurrencies.Python.ETL import load_csvs, load_sql
 warnings.simplefilter('ignore')
 import seaborn as sns
 
+from plotting import add_value_text_to_seaborn_barplot, monte_carlo_plot_confidence_band
 
 def pandas_dt_to_str(date):
     """
@@ -144,8 +145,9 @@ def main():
     returns_std_2017 = returns_std_yearly.loc[2017]
     returns_std_2017.sort_values(ascending=False, inplace=True)
     plt.subplots(figsize=(12, 6))
-    sns.barplot(x='Name', y='Volatility', data=returns_std_2017.to_frame(name='Volatility').reset_index(),
-                palette='viridis')
+    plotting_data = returns_std_2017.to_frame(name='Volatility').reset_index()
+    volatility_plot = sns.barplot(x='Name', y='Volatility', data=plotting_data, palette='viridis')
+    add_value_text_to_seaborn_barplot(volatility_plot, plotting_data, 'Name', 'Volatility')
     plt.title('Volatility (2017)')
     plt.savefig('{}/volatility.png'.format(figures_dir), dpi=figure_dpi)
 
@@ -163,8 +165,15 @@ def main():
         # print("market_var: ", market_var)
         betas[label_and_ticker] = cov_with_market / market_var
     betas.sort_values(inplace=True)
-    # TODO: Create a visualization with the beta values.
-    # print("betas: ", betas)
+    subset_betas = betas.drop(labels=currencies_labels_and_tickers_to_remove)
+    # Create a visualization with the beta values.
+    fig, ax = plt.subplots(figsize=(12, 6))
+    plotting_data = subset_betas.to_frame(name='Beta').reset_index()
+    beta_plot = sns.barplot(ax=ax, x='Name', y='Beta', data=plotting_data, palette='viridis')
+    # Show values in the figure.
+    add_value_text_to_seaborn_barplot(beta_plot, plotting_data, 'Name', 'Beta')
+    plt.title('Betas (Bitcoin (BTC) as Market Index, 2017)')
+    plt.savefig('{}/betas.png'.format(figures_dir), dpi=figure_dpi)
 
     # Find assets' rates of return according to CAPM:
     return_risk_free = 0  # 0.025 # RoR of 10 year US government bond
@@ -400,43 +409,6 @@ def main():
         ml_model_label = 'ML Model'
         monte_carlo_color = 'green'
         monte_carlo_label = 'Monte Carlo AVG'
-
-        # Methods for more complex plots.
-        def monte_carlo_plot_confidence_band(ax, extrapolation_dates, monte_carlo_predicted_values_ranges,
-                                             label_and_ticker, confidence=0.95):
-            """
-            Plots a confidence band on `ax` (a `matplotlib.axes.Axes` object).
-
-            Parameters
-            ----------
-            ax: matplotlib.axes.Axes
-                The axes on which to plot the confidence band.
-            extrapolation_dates: numpy.ndarray
-                The dates being considered.
-            monte_carlo_predicted_values_ranges: pandas.DataFrame
-                A `DataFrame` of `ndarray` objects containing randomly generated values for `extrapolation_dates`.
-            label_and_ticker: str
-                The cryptocurrency being considered.
-            confidence: float
-                The fractional percent confidence for which to plot the band.
-            """
-            current_predicted_values_ranges = monte_carlo_predicted_values_ranges[label_and_ticker]
-            # The mean values for each extrapolation date for this cryptocurrency.
-            predicted_values_means = \
-                current_predicted_values_ranges.apply(lambda values: np.mean(values))
-            predicted_values_stds = \
-                current_predicted_values_ranges.apply(lambda values: np.std(values))
-            # A `DataFrame` of tuples containing the minimum and maximum values
-            # of the interval of desired confidence for each date.
-            min_max_values = pd.DataFrame(index=predicted_values_means.index)
-            # Record the minimum and maximum values for the confidence interval of each date.
-            for date in extrapolation_dates:
-                minimum, maximum = norm.interval(alpha=1-confidence, loc=predicted_values_means.loc[date],
-                                                 scale=predicted_values_stds.loc[date])
-                min_max_values.loc[date, 0] = minimum
-                min_max_values.loc[date, 1] = maximum
-            ax.fill_between(extrapolation_dates, min_max_values[0], min_max_values[1],
-                            color='cyan', label='Monte Carlo {:.0f}% Confidence Band'.format(confidence*100))
 
         # Plot predictions for the rest of 2017 and 2018.
         for i in range(subset_num_currencies):
