@@ -1,6 +1,6 @@
 value_text_fontsize = 12
 
-def add_value_text_to_seaborn_barplot(ax, plotting_data, horizontal_label, vertical_label):
+def add_value_text_to_seaborn_barplot(ax, plotting_data, vertical_label, percent=False):
     """
     Adds text for the value of each bar in a seaborn bar plot.
 
@@ -17,9 +17,9 @@ def add_value_text_to_seaborn_barplot(ax, plotting_data, horizontal_label, verti
     """
     x_pos = 0 # The position on the x axis at which to add the text.
     for index, row in plotting_data.iterrows():
-        ax.text(x_pos, row[vertical_label], str(round(row[vertical_label], 2)),
-                color='black', ha='center', fontsize=value_text_fontsize)
-        x_pos += 1.0  # Add the x axis spacing between points.
+        text = str(round(row[vertical_label], 3)) if not percent else str(round(row[vertical_label], 3)*100)+'%'
+        ax.text(x_pos, row[vertical_label], text, color='black', ha='center', fontsize=value_text_fontsize)
+        x_pos += 1.0 # Add the x axis spacing between points.
 
 def monte_carlo_plot_confidence_band(ax, extrapolation_dates, monte_carlo_predicted_values_ranges,
                                      label_and_ticker, confidence=0.95):

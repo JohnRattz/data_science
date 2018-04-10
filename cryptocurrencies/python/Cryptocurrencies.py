@@ -13,6 +13,7 @@ from cryptocurrencies.Python.ETL import load_csvs, load_sql
 warnings.simplefilter('ignore')
 import seaborn as sns
 
+from analysis import find_optimal_portfolio_weights
 from plotting import add_value_text_to_seaborn_barplot, monte_carlo_plot_confidence_band
 
 def pandas_dt_to_str(date):
@@ -135,9 +136,9 @@ def main():
     print("Considering {} days of price information (as many as without NaN values)".format(num_non_nan_days))
     # Find the returns.
     returns = prices.pct_change()
-    log_returns = np.log(prices / prices.shift(1))
-    # Returns for only the 7 selected currencies.
     subset_returns = subset_prices_nonan.pct_change()
+    log_returns = np.log(prices / prices.shift(1))
+    subset_log_returns = log_returns.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
 
     # Find the standard deviations in returns.
     returns_std_yearly = subset_returns.groupby(subset_prices_nonan.index.year).std()
@@ -147,21 +148,21 @@ def main():
     plt.subplots(figsize=(12, 6))
     plotting_data = returns_std_2017.to_frame(name='Volatility').reset_index()
     volatility_plot = sns.barplot(x='Name', y='Volatility', data=plotting_data, palette='viridis')
-    add_value_text_to_seaborn_barplot(volatility_plot, plotting_data, 'Name', 'Volatility')
+    add_value_text_to_seaborn_barplot(volatility_plot, plotting_data, 'Volatility')
     plt.title('Volatility (2017)')
     plt.savefig('{}/volatility.png'.format(figures_dir), dpi=figure_dpi)
 
     # Find (daily) asset betas (covariance_with_market / market_variance).
-    returns_cov = log_returns.cov()
-    # print(returns_cov.head())
+    log_returns_cov = log_returns.cov()
+    # print(log_returns_cov.head())
     betas = pd.Series(index=log_returns.columns)
     # The index of the column in `betas` corresponding to the market index (Bitcoin)
     market_index = "Bitcoin (BTC)"
     market_index_index = betas.index.get_loc(market_index)
     for i, label_and_ticker in enumerate(betas.index):
-        cov_with_market = returns_cov.iloc[i, market_index_index]
+        cov_with_market = log_returns_cov.iloc[i, market_index_index]
         # print("cov_with_market: ", cov_with_market)
-        market_var = returns_cov.iloc[market_index_index, market_index_index]
+        market_var = log_returns_cov.iloc[market_index_index, market_index_index]
         # print("market_var: ", market_var)
         betas[label_and_ticker] = cov_with_market / market_var
     betas.sort_values(inplace=True)
@@ -171,22 +172,40 @@ def main():
     plotting_data = subset_betas.to_frame(name='Beta').reset_index()
     beta_plot = sns.barplot(ax=ax, x='Name', y='Beta', data=plotting_data, palette='viridis')
     # Show values in the figure.
-    add_value_text_to_seaborn_barplot(beta_plot, plotting_data, 'Name', 'Beta')
-    plt.title('Betas (Bitcoin (BTC) as Market Index, 2017)')
+    add_value_text_to_seaborn_barplot(beta_plot, plotting_data, 'Beta')
+    plt.title('Betas (Bitcoin (BTC) as Market Index)')
     plt.savefig('{}/betas.png'.format(figures_dir), dpi=figure_dpi)
 
     # Find assets' rates of return according to CAPM:
     return_risk_free = 0  # 0.025 # RoR of 10 year US government bond
     return_market = returns[market_index].mean()
-    # print("return_market: ", return_market)
     risk_premium = return_market - return_risk_free
-    # print("risk_premium: ", risk_premium )
-    rates_of_return = pd.Series(index=betas.index)  # log_returns.columns)
-    for i, label_and_ticker in enumerate(rates_of_return.index):
-        rates_of_return[i] = return_risk_free + betas[label_and_ticker] * risk_premium
-    # print("Rates of return: ", rates_of_return)
+    CAPM_expected_rates_of_return = pd.Series(index=subset_betas.index)
+    for i, label_and_ticker in enumerate(CAPM_expected_rates_of_return.index):
+        CAPM_expected_rates_of_return[i] = return_risk_free + subset_betas[label_and_ticker] * risk_premium
+    CAPM_expected_rates_of_return.sort_values(ascending=False, inplace=True)
+    # Create a visualization with the weights.
+    fig, ax = plt.subplots(figsize=(12, 6))
+    plotting_data = CAPM_expected_rates_of_return.to_frame(name='Rate of Return').reset_index()
+    CAPM_plot = sns.barplot(ax=ax, x='Name', y='Rate of Return', data=plotting_data, palette='viridis')
+    # Show values in the figure.
+    add_value_text_to_seaborn_barplot(CAPM_plot, plotting_data, 'Rate of Return', percent=True)
+    plt.title('CAPM Expected Rates of Return')
+    plt.savefig('{}/CAPM_rates_of_return.png'.format(figures_dir), dpi=figure_dpi)
 
-    # TODO: Calculate Sharpe ratios ((return_asset - return_risk_free)/std_asset)?
+    # TODO: Calculate Sharpe ratios for individual assets ((return_asset - return_risk_free)/std_asset)?
+
+    # Determine the optimal portfolio using Markowitz optimization.
+    optimal_weights = find_optimal_portfolio_weights(subset_log_returns, return_risk_free)
+    optimal_weights.sort_values(ascending=False, inplace=True)
+    # Create a visualization with the weights.
+    fig, ax = plt.subplots(figsize=(12, 6))
+    plotting_data = optimal_weights.to_frame(name='Weight').reset_index()
+    portfolio_weights_plot = sns.barplot(ax=ax, x='Name', y='Weight', data=plotting_data, palette='viridis')
+    # Show values in the figure.
+    add_value_text_to_seaborn_barplot(portfolio_weights_plot, plotting_data, 'Weight')
+    plt.title('Markowitz Optimal Portfolio Weights')
+    plt.savefig('{}/optimal_portfolio_weights.png'.format(figures_dir), dpi=figure_dpi)
 
     # Run Monte Carlo simulation to predict future values.
     return_means = log_returns.mean(axis=0)
@@ -206,8 +225,8 @@ def main():
     extrapolation_dates = np.array(pd.date_range(first_extrapolation_date, last_extrapolation_date))
     num_extrapolation_dates = len(extrapolation_dates)
     # num_days_to_predict = 1000  # The number of days after the last date in the data to predict currency values for.
-    # TODO: Increase `iterations` when finished programming.
-    iterations = 5  # The number of times to run the simulation. The number of columns in `predicted_returns` below.
+    # TODO: Increase `monte_carlo_iterations` when finished programming.
+    monte_carlo_iterations = 5  # The number of times to run the simulation. The number of columns in `predicted_returns` below.
     # print("first extrapolation date: ", numpy_dt64_to_str(extrapolation_dates[0]))
     # print("date after last available: ", pandas_dt_to_str(last_extrapolation_date + pd.Timedelta(days=1)))
     # print("last extrapolation date: ", numpy_dt64_to_str(extrapolation_dates[-1]))
@@ -215,7 +234,7 @@ def main():
     monte_carlo_predicted_returns = {}  # pd.DataFrame(columns=log_returns.columns, index=extended_date_range)
     for i, label_and_ticker in enumerate(log_returns.columns):
         # `Z` is a model of Brownian motion.
-        Z = norm.ppf(np.random.rand(num_extrapolation_dates, iterations))
+        Z = norm.ppf(np.random.rand(num_extrapolation_dates, monte_carlo_iterations))
         # print("shape: ", np.exp(np.array(drifts.loc[label_and_ticker]) + np.array(return_stds.loc[label_and_ticker]) * Z).shape)
         monte_carlo_predicted_returns[label_and_ticker] = \
             pd.DataFrame(data=np.exp(np.array(drifts.loc[label_and_ticker]) +
@@ -231,7 +250,7 @@ def main():
     # print("predicted_returns.shape: ", predicted_returns.shape)
     initial_values = prices.iloc[-1]
     # print("initial_values:\n", initial_values)
-    # For each cryptocurrency, for each date, there are `iterations` predicted values.
+    # For each cryptocurrency, for each date, there are `monte_carlo_iterations` predicted values.
     monte_carlo_predicted_values_ranges = pd.DataFrame(index=extrapolation_dates, columns=log_returns.columns)
     # This `DataFrame` has one value for each cryptocurrency, for each date (the mean).
     monte_carlo_predicted_values = pd.DataFrame(index=extrapolation_dates, columns=log_returns.columns)
