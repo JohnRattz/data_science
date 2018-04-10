@@ -1,3 +1,7 @@
+import numpy as np
+import pandas as pd
+from scipy.stats import norm
+
 value_text_fontsize = 12
 
 def add_value_text_to_seaborn_barplot(ax, plotting_data, vertical_label, percent=False):
@@ -39,8 +43,6 @@ def monte_carlo_plot_confidence_band(ax, extrapolation_dates, monte_carlo_predic
     confidence: float
         The fractional percent confidence for which to plot the band.
     """
-    import pandas as pd
-    from scipy.stats import norm
 
     current_predicted_values_ranges = monte_carlo_predicted_values_ranges[label_and_ticker]
     # The mean values for each extrapolation date for this cryptocurrency.

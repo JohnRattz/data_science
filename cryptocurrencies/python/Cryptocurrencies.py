@@ -161,9 +161,7 @@ def main():
     market_index_index = betas.index.get_loc(market_index)
     for i, label_and_ticker in enumerate(betas.index):
         cov_with_market = log_returns_cov.iloc[i, market_index_index]
-        # print("cov_with_market: ", cov_with_market)
         market_var = log_returns_cov.iloc[market_index_index, market_index_index]
-        # print("market_var: ", market_var)
         betas[label_and_ticker] = cov_with_market / market_var
     betas.sort_values(inplace=True)
     subset_betas = betas.drop(labels=currencies_labels_and_tickers_to_remove)
@@ -176,8 +174,12 @@ def main():
     plt.title('Betas (Bitcoin (BTC) as Market Index)')
     plt.savefig('{}/betas.png'.format(figures_dir), dpi=figure_dpi)
 
-    # Find assets' rates of return according to CAPM:
-    return_risk_free = 0  # 0.025 # RoR of 10 year US government bond
+    # Find assets' rates of return according to CAPM.
+    # NOTE: The rate of return of a risk free asset is often taken to be about 2.5% (e.g. 10 year US government bond),
+    # but for the time period being analyzed (2015-2017), the rate of return of the market index (taken to be Bitcoin)
+    # is less than 2.5%, so the risk premium becomes negative (there would be no reason to invest in the market
+    # according to CAPM).
+    return_risk_free = 0
     return_market = returns[market_index].mean()
     risk_premium = return_market - return_risk_free
     CAPM_expected_rates_of_return = pd.Series(index=subset_betas.index)
@@ -209,50 +211,30 @@ def main():
 
     # Run Monte Carlo simulation to predict future values.
     return_means = log_returns.mean(axis=0)
-    # print("\nreturn_means: {}\n".format(return_means))
     return_vars = log_returns.var(axis=0)
-    # print("\nreturn_vars: {}\n".format(return_vars))
     drifts = return_means - (0.5 * return_vars)
-    # print("\ndrifts: {}\n".format(drifts))
     return_stds = log_returns.std(axis=0)
-    # print("\nreturn_stds: {}\n".format(return_stds))
     from scipy.stats import norm
-    # print("Stdevs from mean for cumulative probability of 0.95 for a norm dist: ", norm.ppf(0.95))
-    # print("\nreturns.tail(): {}\n".format(returns.tail()))
     last_data_date = log_returns.index[-1]
     first_extrapolation_date = last_data_date + pd.DateOffset(days=1)
     last_extrapolation_date = pd.to_datetime('2018-12-31')
     extrapolation_dates = np.array(pd.date_range(first_extrapolation_date, last_extrapolation_date))
     num_extrapolation_dates = len(extrapolation_dates)
-    # num_days_to_predict = 1000  # The number of days after the last date in the data to predict currency values for.
     # TODO: Increase `monte_carlo_iterations` when finished programming.
     monte_carlo_iterations = 5  # The number of times to run the simulation. The number of columns in `predicted_returns` below.
-    # print("first extrapolation date: ", numpy_dt64_to_str(extrapolation_dates[0]))
-    # print("date after last available: ", pandas_dt_to_str(last_extrapolation_date + pd.Timedelta(days=1)))
-    # print("last extrapolation date: ", numpy_dt64_to_str(extrapolation_dates[-1]))
     # Predicted log returns.
     monte_carlo_predicted_returns = {}  # pd.DataFrame(columns=log_returns.columns, index=extended_date_range)
     for i, label_and_ticker in enumerate(log_returns.columns):
         # `Z` is a model of Brownian motion.
         Z = norm.ppf(np.random.rand(num_extrapolation_dates, monte_carlo_iterations))
-        # print("shape: ", np.exp(np.array(drifts.loc[label_and_ticker]) + np.array(return_stds.loc[label_and_ticker]) * Z).shape)
         monte_carlo_predicted_returns[label_and_ticker] = \
             pd.DataFrame(data=np.exp(np.array(drifts.loc[label_and_ticker]) +
                                      np.array(return_stds.loc[label_and_ticker]) * Z),
                          index=extrapolation_dates)
-        # Row 0 contains the last date of known price information.
-        # index=pd.Index(np.append(np.array(last_extrapolation_date),
-        # extended_date_range)))
-        # print("predicted_returns[{}].shape: {}".format(label_and_ticker, predicted_returns[label_and_ticker].shape))
-    # print("\nlog_returns.tail(2): \n{}".format(log_returns.tail(2)))
-    # print("\npredicted_returns.head(2): \n{}".format(predicted_returns.head(2)))
-    # print("\npredicted_returns.tail(2): \n{}".format(predicted_returns.tail(2)))
-    # print("predicted_returns.shape: ", predicted_returns.shape)
     initial_values = prices.iloc[-1]
-    # print("initial_values:\n", initial_values)
     # For each cryptocurrency, for each date, there are `monte_carlo_iterations` predicted values.
     monte_carlo_predicted_values_ranges = pd.DataFrame(index=extrapolation_dates, columns=log_returns.columns)
-    # This `DataFrame` has one value for each cryptocurrency, for each date (the mean).
+    # This `DataFrame` contains the mean of predicted values for each cryptocurrency, for each date.
     monte_carlo_predicted_values = pd.DataFrame(index=extrapolation_dates, columns=log_returns.columns)
     for label_index, label_and_ticker in enumerate(log_returns.columns):
         monte_carlo_predicted_values_ranges.iloc[0, label_index] = \
@@ -265,19 +247,10 @@ def main():
                 monte_carlo_predicted_returns[label_and_ticker].iloc[date_index].values
             monte_carlo_predicted_values.iloc[date_index, label_index] = \
                 np.mean(monte_carlo_predicted_values_ranges.iloc[date_index, label_index])
-    # print("predicted_values.head(2):\n", monte_carlo_predicted_values_ranges.head(2))
     subset_monte_carlo_predicted_values_ranges = \
         monte_carlo_predicted_values_ranges.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
     subset_monte_carlo_predicted_values = \
         monte_carlo_predicted_values.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
-    # plt.clf()
-    # monte_carlo_predicted_values.plot()
-    # subset_monte_carlo_predicted_values.plot()
-    # for date in monte_carlo_predicted_values_ranges.index:
-    #     values = np.array(monte_carlo_predicted_values_ranges.loc[date,'Bitcoin (BTC)'])
-    #     plt.plot(np.repeat(date, len(values)), values)
-    # plt.show()
-    # exit()
 
     # Data Extraction
 
@@ -398,11 +371,6 @@ def main():
         collective_fig.clf()
 
         # Get the model's predictions for the rest of 2017 and 2018.
-        # last_data_date = data['Date'].iloc[-1]
-        # first_extrapolation_date = last_data_date + pd.DateOffset(days=1)
-        # last_extrapolation_date = '2018-12-31'
-        # extrapolation_dates = np.array(pd.date_range(first_extrapolation_date, last_extrapolation_date))
-        # num_extrapolation_dates = len(extrapolation_dates)
         extrapolation_X = np.zeros((num_extrapolation_dates, subset_num_currencies * window_size), dtype=np.float64)
         extrapolation_y = np.zeros((num_extrapolation_dates, subset_num_currencies), dtype=np.float64)
         # First `window_size` windows contain known values.
