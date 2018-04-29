@@ -1,53 +1,58 @@
-# Import miscellaneous global variables.
-import sys
-sys.path.insert(0,'../../globals/Python')
-from globals import *
-
-import os
-import warnings
-import time
-
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-
-warnings.simplefilter('ignore')
-import seaborn as sns
-
-from ETL import load_csvs
-
-# Model Training
-from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor
-from sklearn.neighbors import KNeighborsRegressor
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import make_scorer, r2_score
-import pickle
-
-# Custom utility functions
-sys.path.insert(0,'../../' + utilities_dir)
-from analysis import find_optimal_portfolio_weights, calc_betas, CAPM_RoR, run_monte_carlo_financial_simulation
-from conversions import pandas_dt_to_str
-from plotting import add_value_text_to_seaborn_barplot, monte_carlo_plot_confidence_band
-
-
 def main():
-    models_dir = 'models'
-    if not os.path.exists(models_dir):
-        os.makedirs(models_dir)
-    figures_dir = 'figures'
-    if not os.path.exists(figures_dir):
-        os.makedirs(figures_dir)
-    figure_dpi = 200
+    ### Python Imports ###
+
+    # Import miscellaneous global variables.
+    import sys
+    sys.path.insert(0, '../../globals/Python')
+    from globals import utilities_dir
+
+    import os
+    import warnings
+    import time
+
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+
+    warnings.simplefilter('ignore')
+    import seaborn as sns
+
+    from ETL import load_daily_csvs
+
+    # Model Training
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.svm import SVR
+    from sklearn.neural_network import MLPRegressor
+    from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor
+    from sklearn.neighbors import KNeighborsRegressor
+    from sklearn.model_selection import TimeSeriesSplit
+    from sklearn.model_selection import GridSearchCV
+    from sklearn.metrics import make_scorer, r2_score
+    import pickle
+    # from model_saving_loading import save_keras_model, load_keras_model
+    import keras.models as ks_models
+
+    # Custom utility functions
+    sys.path.insert(0, '../../' + utilities_dir)
+    from analysis import find_optimal_portfolio_weights, calc_betas, CAPM_RoR, run_monte_carlo_financial_simulation
+    from conversions import pandas_dt_to_str
+    from plotting import add_value_text_to_seaborn_barplot, monte_carlo_plot_confidence_band
+
+    # Machine Learning
+    import keras
+    from machine_learning import create_keras_regressor, keras_reg_grid_search
+
+    ### End Python Imports ###
+
 
     # Data Importing (SQL)
     # bitcoin, bitcoin_cash, bitconnect, dash, ethereum, ethereum_classic, iota, litecoin, \
     # monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_sql()
     # Data Importing (CSV)
     bitcoin, bitcoin_cash, bitconnect, dash, ethereum, ethereum_classic, iota, litecoin, \
-    monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_csvs()
+    monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_daily_csvs()
 
+    # TODO: Extract this to ETL.py
     currencies_labels_tickers = np.array(
         [['Bitcoin Cash', 'BCH'], ['Bitcoin', 'BTC'], ['BitConnect', 'BCC'], ['Dash', 'DASH'],
          ['Ethereum Classic', 'ETC'], ['Ethereum', 'ETH'], ['Iota', 'MIOTA'], ['Litecoin', 'LTC'],
@@ -69,12 +74,20 @@ def main():
     # Retrieve the closing prices for the currencies.
     prices = currencies.xs(key='Close', axis=1, level='Currency Info')
 
-    # Directory Structure Creation (General)
-    for currency_index in range(len(prices.columns)):
-        currency_label = currencies_labels[currency_index]
-        currency_label_no_spaces = currency_label.replace(' ', '_')
-        # Figures
-        currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
+    # Figure Variables and Paths
+    figure_dpi = 300
+    figures_dir = 'figures'
+    if not os.path.exists(figures_dir):
+        os.makedirs(figures_dir)
+    currency_figures_subdirs = ['{}/{}'.format(figures_dir, currency_label.replace(' ', '_'))
+                                for currency_label in currencies_labels]
+    # Models Variables and Paths
+    models_dir = 'models'
+    if not os.path.exists(models_dir):
+        os.makedirs(models_dir)
+
+    # Directory Structure Creation (Figures)
+    for currency_figures_subdir in currency_figures_subdirs:
         if not os.path.exists(currency_figures_subdir):
             os.makedirs(currency_figures_subdir)
 
@@ -86,20 +99,19 @@ def main():
         currency_label = currencies_labels[currency_index]
         currency_label_no_spaces = currency_label.replace(' ', '_')
         currency_ticker = currencies_tickers[currency_index]
-        plt.figure(figsize=(12, 6))
+        plt.figure(figsize=(12, 6), dpi=figure_dpi)
         plt.plot(prices[column])
         plt.xlabel('Date')
         plt.ylabel('Close')
         plt.title("{} ({}) Closing Value"
                   .format(currency_label, currency_ticker))
         currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
-        # if not os.path.exists(currency_figures_subdir):
-        #     os.makedirs(currency_figures_subdir)
         plt.savefig('{}/{}_price_trend'.format(currency_figures_subdir, currency_label_no_spaces))
 
     # Value Correlations
+    # TODO: Instead of price correlations, find return correlations.
 
-    plt.figure(figsize=(12, 6))
+    plt.figure(figsize=(12, 6), dpi=figure_dpi)
     price_correlations = prices.corr()
     correlations = sns.clustermap(price_correlations, annot=True)
     correlations.savefig('{}/correlations.png'.format(figures_dir))
@@ -140,19 +152,11 @@ def main():
     print("Beginning and ending dates with data for remaining currencies: {}, {}".
           format(subset_prices_nonan.index[0], subset_prices_nonan.index[-1]))
 
-    # Directory Structure Creation (Predictions)
-    for currency_index in range(subset_num_currencies):
-        currency_label = subset_currencies_labels[currency_index]
-        currency_label_no_spaces = currency_label.replace(' ', '_')
-        # Machine Learning Models
-        currency_models_subdir = '{}/{}'.format(models_dir, currency_label_no_spaces)
-        if not os.path.exists(currency_models_subdir):
-            os.makedirs(currency_models_subdir)
-
     # Volatility Examination
 
     num_non_nan_days = len(subset_prices_nonan)
-    print("Considering {} days of price information (as many as without NaN values)".format(num_non_nan_days))
+    print("Considering {} days of price information (as many as without NaN values).".format(num_non_nan_days))
+
     # Find the returns.
     returns = prices.pct_change()
     subset_returns = subset_prices_nonan.pct_change()
@@ -233,57 +237,198 @@ def main():
     # We will predict closing prices based on these numbers of days preceding the date of prediction.
     # The max `window_size` is `num_non_nan_days`, but even reasonably close values may result in poor models or even
     # training failures (errors) due to small or even empty test sets, respectively, during cross validation.
+    # TODO: Also use 1 week and 2 weeks.
     window_sizes = list(range(30, 361, 30))  # Window sizes in days - 1 to 12 months.
+
+    # Directory Structure Creation (Machine Learning Models)
+    currency_models_subdirs = ['{}/{}'.format(models_dir, currency_label.replace(' ', '_'))
+                               for currency_label in subset_currencies_labels]
+    # TODO: Remove these unused code comments.
+    # subset_currency_figures_subdirs = ['{}/{}'.format(figures_dir, currency_label.replace(' ', '_'))
+    #                                    for currency_label in subset_currencies_labels]
+    for currency_models_subdir in currency_models_subdirs:
+        if not os.path.exists(currency_models_subdir):
+            os.makedirs(currency_models_subdir)
+    # Window Size Subdirectories
+    # for window_size in window_sizes:
+        # Figures
+        # Single Asset Models Figures
+        # for currency_figures_subdir in subset_currency_figures_subdirs:
+            # currency_figures_window_size_subdir = '{}/window_size_{}'.format(currency_figures_subdir, window_size)
+            # if not os.path.exists(currency_figures_window_size_subdir):
+            #     os.makedirs(currency_figures_window_size_subdir)
+        # Collective Models Figures
+        # figures_window_size_subdir = '{}/window_size_{}'.format(figures_dir, window_size)
+        # if not os.path.exists(figures_window_size_subdir):
+        #     os.makedirs(figures_window_size_subdir)
+        # Models
+        # Single Asset Models
+        # for currency_models_subdir in currency_models_subdirs:
+        #     currency_models_window_size_subdir = '{}/window_size_{}'.format(currency_models_subdir, window_size)
+        #     if not os.path.exists(currency_models_window_size_subdir):
+        #         os.makedirs(currency_models_window_size_subdir)
+        # Collective Models
+        # models_window_size_subdir = '{}/window_size_{}'.format(models_dir, window_size)
+        # if not os.path.exists(models_window_size_subdir):
+        #     os.makedirs(models_window_size_subdir)
+
+    ### Main Loop ###
     for window_size in window_sizes:
-        print("Predicting prices with a window of {} days of preceding currency values".format(window_size))
+        print("Predicting prices with a window of {} days of preceding currency values.".format(window_size))
+
+        # Data Extraction
+        num_windows = len(subset_prices_nonan) - window_size
+        num_features = subset_num_currencies * window_size
+        X = np.empty((num_windows, num_features), dtype=np.float64)
+        for window_index in range(num_windows):
+            X[window_index,:] = subset_prices_nonan[window_index:window_index + window_size].values.flatten()
+        y = subset_prices_nonan.values[window_size:]
 
         # Feature Scaling
-        scaler = StandardScaler(copy=False)
-        subset_prices_nonan_scaled = scaler.fit_transform(subset_prices_nonan.copy())
-        num_windows = len(subset_prices_nonan) - window_size
-        # Data Extraction
-        X_scaled = np.empty((num_windows, subset_num_currencies * window_size), dtype=np.float64)
-        # X_scaled = subset_prices_nonan_scaled[:-window_size]
-        # X = np.empty((num_windows, subset_num_currencies * window_size), dtype=np.float64)
-        for window_index in range(num_windows):
-            X_scaled[window_index,:] = subset_prices_nonan_scaled[window_index:window_index + window_size].flatten()
-            # X[i] = subset_prices_nonan.values[i:i + window_size].flatten()
-        y_scaled = subset_prices_nonan_scaled[window_size:]
-        # y = subset_prices_nonan.values[window_size:]
-        # print("X_scaled.shape, y_scaled.shape: ", X_scaled.shape, y_scaled.shape)
+        X_scaler = StandardScaler()
+        X_scaled = X_scaler.fit_transform(X)
+        y_scaler = StandardScaler()
+        y_scaled = y_scaler.fit_transform(y)
+        # print("X[:5,0::subset_num_currencies*2], y[:5,0]: ",
+        #       X[:5,0::subset_num_currencies*2], y[:5,0])
+        # print("X_scaled[:5,0::subset_num_currencies*2], y_scaled[:5,0]: ",
+        #       X_scaled[:5,0::subset_num_currencies*2], y_scaled[:5,0])
 
-        ### Model Training ###
+        ### Model Specifications ##
+
+        # Neural Network models
+        # Multilayer Perceptron regressor
+        # model_neural_net = MLPRegressor()
+        # neural_net_hidden_layer_sizes = []
+        # The number of neurons in the hidden layers will be around half the mean of the number of inputs and outputs.
+        # hidden_layer_median_size = int(round((num_features + subset_num_currencies)/2))
+        # single_hidden_layer_sizes = list(range(200,39,-40))
+        # for layer_size in single_hidden_layer_sizes:
+        #     neural_net_hidden_layer_sizes.append((layer_size, layer_size))  # Two hidden layers
+        #     neural_net_hidden_layer_sizes.append((layer_size,))  # One hidden layer
+        # params_neural_net = {'hidden_layer_sizes': neural_net_hidden_layer_sizes,
+        #                      'max_iter': [1000000],
+        #                      'beta_1': [0.6, 0.7, 0.8],
+        #                      'beta_2': [0.9, 0.95, 0.999],
+        #                      'alpha': [1e-10, 1e-8]}
+        from sklearn.pipeline import Pipeline
+        # model_neural_net = Pipeline([
+        #     ('scaler', StandardScaler()),
+        #     ('model', MLPRegressor())
+        # ])
+        # params_neural_net = {'model__hidden_layer_sizes': neural_net_hidden_layer_sizes,
+        #                      'model__max_iter': [10000],
+        #                      'model__beta_1': [0.6, 0.7, 0.8],
+        #                      'model__beta_2': [0.9, 0.95, 0.999],
+        #                      'model__alpha': [1e-10, 1e-8]}
+
+        from keras.wrappers.scikit_learn import KerasRegressor
+        # regressor = KerasRegressor(build_fn=create_keras_model, epochs=100, batch_size=10) # TODO: Set verbosity?
+        # regressor.fit(X,y)
+        # pred = regressor.predict(y)
+        # plt.plot(X[:,0::window_size], y[:,0])
+        # plt.plot(X[:, 0::window_size], pred[:, 0])
+        # plt.show()
+        # exit()
+        # model_neural_net = Pipeline([
+        #     ('scaler', StandardScaler()),
+        #     ('model', KerasRegressor(build_fn=create_keras_model))
+        # ])
+        model_neural_net = "Keras_NN"
+        # params_neural_net = {'model__input_dim': [subset_num_currencies],
+        #                      'model__hidden_layer_sizes': neural_net_hidden_layer_sizes,
+        #                      'model__output_dim': [subset_num_currencies],
+        #                      'model__epochs': [1000],
+        #                      'model__batch_size': [100]}
+        hidden_layer_size = 1024
+        # three_hidden_layers = (hidden_layer_size, hidden_layer_size // 2, hidden_layer_size // 4)
+        # four_hidden_layers = three_hidden_layers + (hidden_layer_size // 8,)
+        # five_hidden_layers = four_hidden_layers + (hidden_layer_size // 16,)
+        # six_hidden_layers = five_hidden_layers + (hidden_layer_size // 32,)
+        # hidden_layer_sizes = [three_hidden_layers, four_hidden_layers, five_hidden_layers, six_hidden_layers]
+        hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 2, hidden_layer_size // 4,
+                               hidden_layer_size // 8, hidden_layer_size // 16, hidden_layer_size // 32)]
+        params_neural_net = {'batch_size': [16, 32, 64],
+                             'hidden_layer_sizes': hidden_layer_sizes}
+                            # {'input_dim': [window_size],
+                            # 'output_dim': [subset_num_currencies]}
+        neural_net_epochs = 500
+        # make_keras_picklable()
+        # print(type(KerasRegressor(build_fn=create_keras_model)))
+        # from model_saving_loading import save_keras_pipeline, load_keras_pipeline
+        # model_filepath = 'keras_model'
+        # keras_step_name = 'model'
+        # pipeline_filepath = 'keras_pipeline'
+        # save_keras_pipeline(model_neural_net, keras_step_name, model_filepath, pipeline_filepath)
+        # loaded_pipeline = load_keras_pipeline(keras_step_name, model_filepath, pipeline_filepath)
+        # print(loaded_pipeline)
+
+
+        # Linear Models
+        # TODO: Lasso regressor (only if return correlations are low)
+        # TODO: Ridge (sklearn.linear_model.Ridge) regressor (only if return correlations are high)
+
+        # SVM models
+        # TODO: Support Vector regressor
+        # model_svr = SVR()
+        # model_svr = Pipeline([
+        #     ('scaler', StandardScaler()),
+        #     ('model', SVR())
+        # ])
+        # params_svr = {'model__C': [0.001, 0.01, 0.1, 1.0, 10.0, 100.0, 1000.0],
+        #               'model__gamma': [0.01, 0.1, 1/subset_num_currencies, 1.0, 10.0],
+        #               'model__epsilon': [0.1], # Higher epsilon reduces variance
+        #               'model__kernel': ['linear', 'poly', 'rbf', 'sigmoid', 'precomputed']}
 
         # Ensemble models
         # Extra-Trees regressor
-        model_extra_trees = ExtraTreesRegressor()
-        params_extra_trees = {'n_estimators': [500],
-                              'min_samples_split': [2, 5, 10],
-                              'max_features': ['auto', 'sqrt', 'log2']}
+        # model_extra_trees = ExtraTreesRegressor()
+        # model_extra_trees = Pipeline([
+        #     ('scaler', StandardScaler()),
+        #     ('model', ExtraTreesRegressor())
+        # ])
+        # params_extra_trees = {'model__n_estimators': [500],
+        #                       'model__min_samples_split': [2, 5, 10],
+        #                       'model__max_features': ['auto', 'sqrt', 'log2']}
         # Random forest regressor
-        model_random_forest = RandomForestRegressor()
-        params_random_forest = {'n_estimators': [500],
-                                'min_samples_split': [2, 5, 10],
-                                'max_features': ['auto', 'sqrt', 'log2']}
+        # model_random_forest = RandomForestRegressor()
+        # model_random_forest = Pipeline([
+        #     ('scaler', StandardScaler()),
+        #     ('model', RandomForestRegressor())
+        # ])
+        # params_random_forest = {'model__n_estimators': [500],
+        #                         'model__min_samples_split': [2, 5, 10],
+        #                         'model__max_features': ['auto', 'sqrt', 'log2']}
 
         # Neighbors models
+        # TODO: If flat lining is less of an issue with KNN models removed, clean up these lines.
         # KNearestNeighbors regressor
-        model_knn = KNeighborsRegressor()
-        params_knn = {'n_neighbors': [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-                      'weights': ['uniform', 'distance'],
-                      'algorithm': ['auto'],
-                      'leaf_size': [5, 10, 20, 30, 40, 50, 60]}
+        # model_knn = KNeighborsRegressor()
+        # model_knn = Pipeline([
+        #     ('scaler', StandardScaler()),
+        #     ('model', KNeighborsRegressor())
+        # ])
+        # params_knn = {'model__n_neighbors': [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        #               'model__weights': ['uniform', 'distance'],
+        #               'model__algorithm': ['auto'],
+        #               'model__leaf_size': [5, 10, 20, 30, 40, 50, 60]}
 
         # Collect models for use in GridSearchCV.
-        models_to_test = [model_extra_trees, model_random_forest, model_knn]
-        param_sets = [params_extra_trees, params_random_forest, params_knn]
+        # models_to_test = [model_extra_trees, model_random_forest] # ensemble_trees
+        # param_sets = [params_extra_trees, params_random_forest] # ensemble_trees
+        # models_to_test = [model_extra_trees, model_random_forest, model_knn] # knn_allowed
+        # param_sets = [params_extra_trees, params_random_forest, params_knn] # knn_allowed
+        models_to_test = [model_neural_net]  # neural_network
+        param_grids = [params_neural_net]  # neural_network
+        # models_to_test = [model_svr]  # SVR
+        # param_sets = [params_svr]  # SVR
 
+        load_models = False  # Whether or not to load models that have already been created by this program.
+        # Train models on different amounts of division of the data into training and test sets.
         # Specify the cross validation method.
-        # from sklearn.model_selection import KFold
-        # cv = KFold(n_splits=5, shuffle=True, random_state=42)
         cv = TimeSeriesSplit(n_splits=10)
 
-        load_models = False # Whether or not to load models that have already been created by this program.
+        ### Model Training ###
 
         # Single Asset Model (consider only windows of values for one asset each (disallows learning of correlations))
         single_asset_models = []
@@ -292,78 +437,130 @@ def main():
             currency_label = subset_currencies_labels[currency_index]
             currency_label_no_spaces = currency_label.replace(' ', '_')
             currency_models_subdir = '{}/{}'.format(models_dir, currency_label_no_spaces)
-            model_pickle_path = "{}/{}_model_{}.pkl".format(currency_models_subdir, currency_label_no_spaces,
-                                                            window_size)
-            if not load_models:
-                print("Currently training a model for {} with a window size of {} days.".format(
-                    subset_currencies_labels_and_tickers[currency_index], window_size))
 
-                # Tuples of scores and the corresponding models
-                score_model_tuples = []
+            # Paths
+            model_base_path = "{}/{}_model_{}".format(currency_models_subdir, currency_label_no_spaces, window_size)
+            model_pickle_path = "{}.pkl".format(model_base_path)
+
+            # Data for only this cryptocurrency.
+            X_subset = X[:, currency_index::subset_num_currencies]
+            y_subset = y[:, currency_index].reshape(-1, 1)
+            # print("X_subset[:5], y_subset[:5]: ", X_subset[:5], y_subset[:5])
+
+            # Feature Scaling
+            X_subset_scaler = StandardScaler()
+            X_subset_scaled = X_subset_scaler.fit_transform(X_subset)
+            y_subset_scaler = StandardScaler()
+            y_subset_scaled = y_subset_scaler.fit_transform(y_subset)
+
+            if not load_models:
+                currency_label_and_ticker = subset_currencies_labels_and_tickers[currency_index]
+                print("Currently training a model for {} with a window size of {} days."
+                    .format(currency_label_and_ticker, window_size))
+
+                # Tuples of scores and the corresponding models (along with the best batch sizes for Keras models)
+                score_model_batch_size_tuples = []
 
                 # Create the models.
                 for i in range(len(models_to_test)):
-                    grid_search = GridSearchCV(models_to_test[i], param_sets[i],
-                                               scoring=make_scorer(r2_score), cv=cv,
-                                               n_jobs=1)#max(1, num_cores//2))
-                    grid_search.fit(X_scaled[:,currency_index::window_size], y_scaled[:,currency_index])
-                    # print("X_scaled[:,i::window_size].shape, y_scaled[:,i].shape: ",
-                    #       X_scaled[:,currency_index::window_size].shape, y_scaled[:,currency_index].shape)
-                    # exit()
-                    model = grid_search.best_estimator_
-                    score = grid_search.best_score_
-                    score_model_tuples.append((score, model))
+                    model_to_test = models_to_test[i]
+                    param_grid = param_grids[i]
+                    best_batch_size = None
+                    # print("model_to_test, param_set: ", model_to_test, param_set)
+                    model = None
+                    # In this case, Keras needs to be trained differently to save its models to the filesystem.
+                    if model_to_test == model_neural_net:
+                        model, score, best_batch_size = \
+                            keras_reg_grid_search(X_subset, y_subset, build_fn=create_keras_regressor,
+                                                  input_dim=window_size, output_dim=1, param_grid=params_neural_net,
+                                                  epochs=neural_net_epochs, scoring=r2_score, cv=cv, scale=True)
+                    else:
+                        grid_search = GridSearchCV(model_to_test, param_grid, scoring=make_scorer(r2_score),
+                                                   cv=cv, n_jobs=1)#max(1, round(num_cores/2)))
+                        grid_search.fit(X_subset, y_subset)
+                        model = grid_search.best_estimator_
+                        score = grid_search.best_score_
+                    score_model_batch_size_tuples.append((score, model, best_batch_size))
                 time.sleep(1)  # Wait 1 second for printing from GridSearchCV to complete.
                 # Choose the model with the best score.
-                score_model_tuples.sort(key=lambda tup: tup[0], reverse=True)
-                best_score = score_model_tuples[0][0]
-                model = score_model_tuples[0][1]
-                # print("Best model and score for window size {}: {}".format(window_size, (model, best_score)))
-                # Save the model for this window size.
-                with open(model_pickle_path, "wb") as model_outfile:
-                    pickle.dump(model, model_outfile)
+                score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
+                best_score = score_model_batch_size_tuples[0][0]
+                model = score_model_batch_size_tuples[0][1]
+                best_batch_size = score_model_batch_size_tuples[0][2]
+                print("Best model and score for asset {} and window size {}: {}"
+                      .format(currency_label_and_ticker, window_size, (model, best_score)))
+                # Save the model for this window size after fitting to the whole dataset.
+                if type(model) is keras.models.Sequential:
+                    model.fit(X_subset_scaled, y_subset_scaled, epochs=neural_net_epochs,
+                              batch_size=best_batch_size, verbose=0)
+                    ks_models.save_model(model, model_base_path + '.h5')
+                else: # Model is refit by GridSearchCV.
+                    with open(model_pickle_path, "wb") as model_outfile:
+                        pickle.dump(model, model_outfile)
             else:
                 # Model Loading
-                with open(model_pickle_path, "rb") as model_infile:
-                    model = pickle.load(model_infile)
+                try: # Try to load the neural network model first (runs on GPUs).
+                    model = ks_models.load_model(model_base_path + '.h5')
+                except OSError:
+                    with open(model_pickle_path, "rb") as model_infile:
+                        model = pickle.load(model_infile)
             single_asset_models.append(model)
 
         # Collective Model (consider windows of values for all assets)
         collective_assets_model = None
-        model_pickle_path = "{}/model_{}.pkl".format(models_dir, window_size)
+        model_base_path = "{}/model_{}".format(models_dir, window_size)
+        model_pickle_path = "{}.pkl".format(model_base_path)
         if not load_models:
             print("Currently training a model for all assets collectively "
                   "with a window size of {} days.".format(window_size))
 
-            # Tuples of scores and the corresponding models
-            score_model_tuples = []
+            # Tuples of scores and the corresponding models (along with the best batch sizes for Keras models)
+            score_model_batch_size_tuples = []
 
             # Create the models.
             for i in range(len(models_to_test)):
-                grid_search = GridSearchCV(models_to_test[i], param_sets[i],
-                                           scoring=make_scorer(r2_score), cv=cv,
-                                           n_jobs=1)#max(1, num_cores//2))
-                grid_search.fit(X_scaled, y_scaled)
-                # print("X_scaled[:,i::window_size].shape, y_scaled[:,i].shape: ",
-                #       X_scaled[:,currency_index::window_size].shape, y_scaled[:,currency_index].shape)
-                # exit()
-                model = grid_search.best_estimator_
-                score = grid_search.best_score_
-                score_model_tuples.append((score, model))
+                model_to_test = models_to_test[i]
+                param_grid = param_grids[i]
+                best_batch_size = None
+                # print("model_to_test, param_set: ", model_to_test, param_set)
+                model = None
+                # In this case, Keras needs to be trained differently to save its models to the filesystem.
+                if model_to_test == model_neural_net:
+                    model, score, best_batch_size = \
+                        keras_reg_grid_search(X, y, build_fn=create_keras_regressor,
+                                              input_dim=subset_num_currencies * window_size,
+                                              output_dim=subset_num_currencies, param_grid=params_neural_net,
+                                              epochs=neural_net_epochs, scoring=r2_score, cv=cv, scale=True)
+                else:
+                    grid_search = GridSearchCV(model_to_test, param_grid, scoring=make_scorer(r2_score),
+                                               cv=cv, n_jobs=1)#max(1, round(num_cores/2)))
+                    grid_search.fit(X, y)
+                    model = grid_search.best_estimator_
+                    score = grid_search.best_score_
+                score_model_batch_size_tuples.append((score, model, best_batch_size))
             time.sleep(1)  # Wait 1 second for printing from GridSearchCV to complete.
             # Choose the model with the best score.
-            score_model_tuples.sort(key=lambda tup: tup[0], reverse=True)
-            best_score = score_model_tuples[0][0]
-            collective_assets_model = score_model_tuples[0][1]
-            print("Best collective model and score for window size {}: {}".format(
-                window_size, (collective_assets_model, best_score)))
-            # Save the model for this window size.
-            with open(model_pickle_path, "wb") as model_outfile:
-                pickle.dump(collective_assets_model, model_outfile)
+            score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
+            best_score = score_model_batch_size_tuples[0][0]
+            collective_assets_model = score_model_batch_size_tuples[0][1]
+            best_batch_size = score_model_batch_size_tuples[0][2]
+            print("Best collective model and score for window size {}: {}"
+                  .format(window_size, (collective_assets_model, best_score)))
+            # Save the model for this window size after fitting to the whole dataset.
+            if type(collective_assets_model) is keras.models.Sequential:
+                collective_assets_model.fit(X_scaled, y_scaled, epochs=neural_net_epochs,
+                                            batch_size=best_batch_size, verbose=0)
+                ks_models.save_model(collective_assets_model, model_base_path + '.h5')
+            else: # Model is refit by GridSearchCV.
+                with open(model_pickle_path, "wb") as model_outfile:
+                    pickle.dump(collective_assets_model, model_outfile)
         else:
             # Model Loading
-            with open(model_pickle_path, "rb") as model_infile:
-                collective_assets_model = pickle.load(model_infile)
+            try: # Try to load the neural network model first (runs on GPUs).
+                collective_assets_model = ks_models.load_model(model_base_path + '.h5')
+            except OSError:
+                with open(model_pickle_path, "rb") as model_infile:
+                    collective_assets_model = pickle.load(model_infile)
 
         # Validation and Visualization
 
@@ -378,23 +575,16 @@ def main():
             X: numpy.ndarray
                 The feature vectors to predict for.
             """
-            # print("X.shape: ", X.shape)
             single_asset_models_pred = np.empty((len(X), subset_num_currencies), dtype=np.float64)
             for currency_index in range(subset_num_currencies):
-                # print("X[:, currency_index::window_size]: ",
-                #       X[:, currency_index::window_size], X[:, currency_index::window_size].shape)
-                # print("single_asset_models[currency_index].predict(X[:, currency_index::window_size]): ",
-                #       single_asset_models[currency_index].predict(X[:, currency_index::window_size]),
-                #       single_asset_models[currency_index].predict(X[:, currency_index::window_size]).shape)
                 single_asset_models_pred[:, currency_index] = \
-                    single_asset_models[currency_index].predict(X[:, currency_index::window_size])
-            # print("single_asset_models_pred: ", single_asset_models_pred, single_asset_models_pred.shape)
+                    single_asset_models[currency_index].predict(X[:, currency_index::subset_num_currencies]).flatten()
             return single_asset_models_pred
 
-        single_asset_models_pred = single_asset_models_predict(X_scaled)
+        single_asset_models_pred = y_scaler.inverse_transform(single_asset_models_predict(X_scaled))
 
         # Collective Model Predictions
-        collective_assets_model_pred = collective_assets_model.predict(X_scaled)
+        collective_assets_model_pred = y_scaler.inverse_transform(collective_assets_model.predict(X_scaled))
 
         ### Plotting ###
         # The colors of lines for various things.
@@ -406,16 +596,6 @@ def main():
         ml_model_collective_label = 'ML Model (Collective Predictor)'
         monte_carlo_color = 'green'
         monte_carlo_label = 'Monte Carlo AVG'
-
-        # Inverse Feature Scaling
-        single_asset_models_pred = scaler.inverse_transform(single_asset_models_pred)
-        collective_assets_model_pred = scaler.inverse_transform(collective_assets_model_pred)
-        y = scaler.inverse_transform(y_scaled)
-        # print("single_asset_models_pred.shape, collective_assets_model_pred.shaper, y.shape: ",
-        #       single_asset_models_pred.shape, collective_assets_model_pred.shape, y.shape)
-        # print("single_asset_models_pred[:5], collective_assets_model_pred[:5], y[:5]: ",
-        #       single_asset_models_pred[:5], collective_assets_model_pred[:5], y[:5])
-        # exit()
 
         # Plot the actual values along with the predictions. They should overlap.
         subset_num_cols = 2
@@ -459,11 +639,11 @@ def main():
                                    .format(currency_label, currency_ticker, window_size))
             indiv_fig_ax.legend()
             currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
-            # if not os.path.exists(currency_figures_subdir):
-            #     os.makedirs(currency_figures_subdir)
-            indiv_fig.savefig('{}/{}_validation_{}.png'.format(currency_figures_subdir,
-                                                               currency_label_no_spaces, window_size), dpi=figure_dpi)
-        collective_fig.savefig('{}/validation_{}.png'.format(figures_dir, window_size), dpi=figure_dpi)
+            indiv_fig.savefig('{}/{}_validation_{}.png'
+                              .format(currency_figures_subdir, currency_label_no_spaces, window_size),
+                              dpi=figure_dpi)
+        collective_fig.savefig('{}/validation_{}.png'
+                               .format(figures_dir, window_size), dpi=figure_dpi)
         collective_fig.clf()
 
         # Get the models' predictions for the rest of 2017 and 2018.
@@ -479,39 +659,29 @@ def main():
             np.zeros((num_extrapolation_dates, subset_num_currencies), dtype=np.float64)
 
         # First `window_size` windows contain known values.
-        # given_prices = subset_prices_nonan.values[-window_size:].flatten()
-        given_prices_scaled = subset_prices_nonan_scaled[-window_size:].flatten()
-        # extrapolation_X[0] = given_prices
+        given_prices = subset_prices_nonan.values[-window_size:].flatten()
         # Single Asset Model Predictions
-        single_asset_models_extrapolation_X[0] = given_prices_scaled
-        # print("single_asset_models_extrapolation_X[0].reshape(1, -1): ",
-        #       single_asset_models_extrapolation_X[0].reshape(1, -1))
+        single_asset_models_extrapolation_X[0] = given_prices
         single_asset_models_extrapolation_y[0] = \
             single_asset_models_predict(single_asset_models_extrapolation_X[0].reshape(1, -1))
         # Collective Model Predictions
-        collective_assets_model_extrapolation_X[0] = given_prices_scaled
+        collective_assets_model_extrapolation_X[0] = given_prices
         collective_assets_model_extrapolation_y[0] = \
             collective_assets_model.predict(collective_assets_model_extrapolation_X[0].reshape(1, -1))
         for currency_index in range(1, window_size):
-            # given_prices = subset_prices_nonan.values[-window_size + i:].flatten()
-            given_prices_scaled = subset_prices_nonan_scaled[-window_size + currency_index:].flatten()
+            given_prices = subset_prices_nonan.values[-window_size + currency_index:].flatten()
             # Single Asset Model Predictions
             single_asset_models_previous_predicted_prices = \
                 single_asset_models_extrapolation_y[:currency_index].flatten()
-            # extrapolation_X[i] = np.concatenate((given_prices, previous_predicted_prices))
             single_asset_models_extrapolation_X[currency_index] = \
-                np.concatenate((given_prices_scaled, single_asset_models_previous_predicted_prices))
+                np.concatenate((given_prices, single_asset_models_previous_predicted_prices))
             single_asset_models_extrapolation_y[currency_index] = \
                 single_asset_models_predict(single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten()
             # Collective Model Predictions
             collective_assets_model_previous_predicted_prices = \
                 collective_assets_model_extrapolation_y[:currency_index].flatten()
             collective_assets_model_extrapolation_X[currency_index] = \
-                np.concatenate((given_prices_scaled, collective_assets_model_previous_predicted_prices))
-            # print("collective_assets_model_extrapolation_X[currency_index].reshape(1, -1): ",
-            #       collective_assets_model_extrapolation_X[currency_index].reshape(1, -1))
-            # print("collective_assets_model.predict(collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)):",
-            #       collective_assets_model.predict(collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)))
+                np.concatenate((given_prices, collective_assets_model_previous_predicted_prices))
             collective_assets_model_extrapolation_y[currency_index] = \
                 collective_assets_model.predict(collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten()
         # Remaining windows contain only predicted values (predicting based on previous predictions).
@@ -530,14 +700,6 @@ def main():
                 collective_assets_model_previous_predicted_prices
             collective_assets_model_extrapolation_y[currency_index] = \
                 collective_assets_model.predict(collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten()
-
-        # Inverse Feature Scaling
-        # print("single_asset_models_extrapolation_y[-5:]: ", single_asset_models_extrapolation_y[-5:])
-        # print("collective_assets_model_extrapolation_y[-5:]: ", collective_assets_model_extrapolation_y[-5:])
-        single_asset_models_extrapolation_y = scaler.inverse_transform(single_asset_models_extrapolation_y)
-        collective_assets_model_extrapolation_y = scaler.inverse_transform(collective_assets_model_extrapolation_y)
-        # print("single_asset_models_extrapolation_y[-5:]: ", single_asset_models_extrapolation_y[-5:])
-        # print("collective_assets_model_extrapolation_y[-5:]: ", collective_assets_model_extrapolation_y[-5:])
 
         # Plot predictions for the rest of 2017 and 2018.
         for currency_index in range(subset_num_currencies):
@@ -585,11 +747,11 @@ def main():
                                    .format(currency_label, currency_ticker, window_size))
             indiv_fig_ax.legend()
             currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
-            # if not os.path.exists(currency_figures_subdir):
-            #     os.makedirs(currency_figures_subdir)
-            indiv_fig.savefig('{}/{}_predictions_{}.png'.format(currency_figures_subdir,
-                                                                currency_label_no_spaces, window_size), dpi=figure_dpi)
-        collective_fig.savefig('{}/predictions_{}.png'.format(figures_dir, window_size), dpi=figure_dpi)
+            indiv_fig.savefig('{}/{}_predictions_{}.png'
+                              .format(currency_figures_subdir, currency_label_no_spaces, window_size),
+                              dpi=figure_dpi)
+        collective_fig.savefig('{}/predictions_{}.png'
+                               .format(figures_dir, window_size), dpi=figure_dpi)
         collective_fig.clf()
 
         # Plot the predicitons for the rest of 2017 and 2018 along with the actual values for the date range used.
@@ -644,15 +806,15 @@ def main():
                                    .format(currency_label, currency_ticker, window_size))
             indiv_fig_ax.legend()
             currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
-            # if not os.path.exists(currency_figures_subdir):
-            #     os.makedirs(currency_figures_subdir)
-            plt.savefig('{}/{}_actual_plus_predictions_{}.png'.format(currency_figures_subdir,
-                                                                      currency_label_no_spaces, window_size),
-                        dpi=figure_dpi)
-        collective_fig.savefig('{}/actual_plus_predictions_{}.png'
-                               .format(figures_dir, window_size), dpi=figure_dpi)
+            indiv_fig.savefig('{}/{}_actual_plus_predictions_{}.png'
+                              .format(currency_figures_subdir, currency_label_no_spaces, window_size),
+                              dpi=figure_dpi)
+        collective_fig.savefig('{}/actual_plus_predictions_{}.png'.format(figures_dir, window_size), dpi=figure_dpi)
         plt.close('all')
 
 
 if __name__ == '__main__':
+    # Remove TensorFlow debugging prints.
+    import os
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     main()
