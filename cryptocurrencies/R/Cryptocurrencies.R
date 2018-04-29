@@ -35,7 +35,7 @@ if (!READ_FROM_CSV) {
   # Data Importing (CSV)
   for (cryptocurrency_table_name in cryptocurrency_table_names) {
     assign(cryptocurrency_table_name,
-           read.csv(sprintf('../data/%s_price.csv', cryptocurrency_table_name)))
+           read.csv(sprintf('../data/daily/%s_price.csv', cryptocurrency_table_name)))
   }
 }
 # Check the contents of the tables.
