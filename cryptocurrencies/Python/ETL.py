@@ -3,32 +3,27 @@ import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine
 
-cryptocurrency_names_daily_data = \
-    ('bitcoin', 'bitcoin_cash', 'bitconnect', 'dash', 'ethereum', 'ethereum_classic', 'iota',
-     'litecoin', 'monero', 'nem', 'neo', 'numeraire', 'omisego', 'qtum', 'ripple', 'stratis', 'waves')
-cryptocurrency_names_hourly_data = \
-    ('bitcoin', 'dash', 'ethereum', 'ethereum_classic', 'litecoin', 'monero', 'nem', 'neo', 'omisego', 'ripple')
-
 # SQLAlchemy for connecting to a local MySQL instance.
 # mysqlconnector
 engine = create_engine('mysql+pymysql://john:Iwbicvi1994mysql@localhost:3306/cryptocurrencies', echo=False)
 
 # Daily data
-def load_daily_data(source='csv', write_to_SQL=False, set_date_index=True):
+def load_data(resolution, source='csv', write_to_SQL=False):
     """
-    # TODO: Finish documenting this function.
     Load daily data for 17 cryptocurrencies from April 28, 2013 to November 7, 2017.
     The data was obtained from https://www.kaggle.com/sudalairajkumar/cryptocurrencypricehistory.
 
     Parameters
     ----------
+    resolution: str
+        Specifies the resolution of the data to load. Either 'daily' or 'hourly'.\n
+        Daily data spans April 28, 2013 to November 7, 2017.\n
+        Hourly data spans July 1, 2017 to April 27, 2018.
     source: str
         Specifies the data source. Can be either 'csv', which loads from the `data` directory, or 'sql',
-        which loads from a MySQL server running locally (only works on my PC).
+        which loads from a MySQL server running locally (only works on my PC and with daily data).
     write_to_SQL: bool
-        Whether to write the loaded data into the local MySQL server (only works on my PC).
-    set_date_index: bool
-        Whether to set the "Date" column as the index of the data. `True` for proper time series behavior of `prices`.
+        Whether to write the loaded data into the local MySQL server (only works on my PC and with daily data).
 
     Returns
     -------
@@ -41,13 +36,28 @@ def load_daily_data(source='csv', write_to_SQL=False, set_date_index=True):
     currencies_labels_and_tickers: list
         Labels followed by their tickers. This and the preceding two return values are parallel containers.
     prices: pandas.core.frame.DataFrame
-        A `DataFrame` containing the closing values for several cryptocurrencies.
+        A `DataFrame` containing the closing values for several cryptocurrencies. Indexed by date.
     """
+    # Variable names and data associated with loading them.
+    cryptocurrency_names_daily_data = \
+        ('bitcoin', 'bitcoin_cash', 'bitconnect', 'dash', 'ethereum', 'ethereum_classic', 'iota',
+         'litecoin', 'monero', 'nem', 'neo', 'numeraire', 'omisego', 'qtum', 'ripple', 'stratis', 'waves')
+    cryptocurrencies_with_hourly_data = \
+        [('bitcoin', 'Gdax_BTCUSD_1h'), ('dash', 'Poloniex_DASHUSD_1h'),
+         ('ethereum_classic', 'Poloniex_ETCUSD_1h'), ('ethereum', 'Gdax_ETHUSD_1h'),
+         ('litecoin', 'Gdax_LTCUSD_1h'), ('monero', 'Poloniex_XMRUSD_1h'), ('nem', 'Poloniex_XEMBTC_1h'),
+         ('neo', 'Bittrex_NEOUSD_1h'), ('omisego', 'Bittrex_OMGUSD_1h'), ('ripple', 'Kraken_XRPUSD_1h')]
+
     vars = {}
-    for cryptocurrency_name in cryptocurrency_names_daily_data:
-        vars[cryptocurrency_name] = pd.read_csv('../data/daily/{}_price.csv'.format(cryptocurrency_name)) \
-            if source == 'csv' else pd.read_sql("SELECT * FROM {}".format(cryptocurrency_name), engine, index_col="Date")
-    if write_to_SQL:
+    if resolution=='daily':
+        for cryptocurrency_name in cryptocurrency_names_daily_data:
+            vars[cryptocurrency_name] = pd.read_csv('../data/daily/{}_price.csv'.format(cryptocurrency_name)) \
+                if source == 'csv' else pd.read_sql("SELECT * FROM {}".format(cryptocurrency_name), engine, index_col="Date")
+    else:
+        for cryptocurrency_name, filename in cryptocurrencies_with_hourly_data:
+            vars[cryptocurrency_name] = pd.read_csv('../data/hourly/{}.csv'.format(filename), header=1)
+
+    if resolution=='daily' and write_to_SQL:
         # Create SQL tables for the cryptocurrencies - one for each cryptocurrency.
         for cryptocurrency_name in cryptocurrency_names_daily_data:
             cryptocurrency = vars[cryptocurrency_name]
@@ -61,16 +71,22 @@ def load_daily_data(source='csv', write_to_SQL=False, set_date_index=True):
             cryptocurrency.sort_values('Date', inplace=True)
             cryptocurrency.to_sql(name=cryptocurrency_name, con=engine, if_exists='replace', index=False)
 
-    if set_date_index:
+    if resolution=='daily':
         for cryptocurrency_name in cryptocurrency_names_daily_data:
             vars[cryptocurrency_name].set_index('Date', inplace=True)
+    else:
+        initial_time_format = '%Y-%m-%d %I-%p'
+        for cryptocurrency_name, _ in cryptocurrencies_with_hourly_data:
+            vars[cryptocurrency_name].set_index(pd.to_datetime(vars[cryptocurrency_name]['Date'],
+                                                               format=initial_time_format), inplace=True)
+            vars[cryptocurrency_name].drop('Date', axis=1, inplace=True)
     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
-        combine_data(vars, resolution='daily')
+        combine_data(vars, resolution=resolution)
     return num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices
 
 def combine_data(vars, resolution):
     """
-    TODO: Finish documenting this function.
+    Combines data into a single pandas `DataFrame`, indexed by date.
 
     Parameters
     ----------
@@ -134,54 +150,14 @@ def combine_data(vars, resolution):
     return num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices
 
 
-# Hourly data
-def load_hourly_data(source='csv', set_date_index=True):
-    """
-    TODO: Finish documenting this function.
-    Load hourly data for 10 cryptocurrencies from July 1, 2017 to April 27, 2018.
-    The data was obtained indirectly from http://www.cryptodatadownload.com/.
-
-    Returns
-    -------
-    num_currencies: int
-        The number of cryptocurrencies in the data.
-    currencies_labels: list
-        Some cryptocurrency labels.
-    currencies_tickers: list
-        Standard tickers for the cryptocurrencies in `currencies_labels`.
-    currencies_labels_and_tickers: list
-        Labels followed by their tickers. This and the preceding two return values are parallel containers.
-    prices: pandas.core.frame.DataFrame
-        A `DataFrame` containing the closing values for several cryptocurrencies.
-    """
-    cryptocurrencies_with_hourly_data = \
-        [('bitcoin', 'Gdax_BTCUSD_1h'), ('dash', 'Poloniex_DASHUSD_1h'),
-         ('ethereum_classic', 'Poloniex_ETCUSD_1h'), ('ethereum', 'Gdax_ETHUSD_1h'),
-         ('litecoin', 'Gdax_LTCUSD_1h'), ('monero', 'Poloniex_XMRUSD_1h'), ('nem', 'Poloniex_XEMBTC_1h'),
-         ('neo', 'Bittrex_NEOUSD_1h'), ('omisego', 'Bittrex_OMGUSD_1h'), ('ripple', 'Kraken_XRPUSD_1h')]
-    vars = {}
-    for cryptocurrency_name, filename in cryptocurrencies_with_hourly_data:
-        vars[cryptocurrency_name] = pd.read_csv('../data/hourly/{}.csv'.format(filename), header=1)
-
-    if set_date_index:
-        initial_time_format = '%Y-%m-%d %I-%p'
-        for cryptocurrency_name, _ in cryptocurrencies_with_hourly_data:
-            vars[cryptocurrency_name].set_index(pd.to_datetime(vars[cryptocurrency_name]['Date'],
-                                                               format=initial_time_format), inplace=True)
-            vars[cryptocurrency_name].drop('Date', axis=1, inplace=True)
-    # Nem is stored as a fraction of Bitcoin's value rather than in USD, so we have to calculate its value in USD.
-    vars['nem']['Close'] = vars['nem']['Close'] * vars['bitcoin']['Close']
-
-    num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
-        combine_data(vars, resolution='hourly')
-    return num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices
-
-
-if __name__ == '__main__':
-    # num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = load_daily_data()
-    num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = load_hourly_data()
-    print("num_currencies: ", num_currencies)
-    # print("currencies_labels: ", currencies_labels)
-    # print("currencies_tickers: ", currencies_tickers)
-    print("currencies_labels_and_tickers: ", currencies_labels_and_tickers)
-    # print("prices: ", prices)
+# if __name__ == '__main__':
+#     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
+#         load_data(resolution='daily')
+#     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
+#         load_data(resolution='hourly')
+#     print("num_currencies: ", num_currencies)
+#     print("currencies_labels: ", currencies_labels)
+#     print("currencies_tickers: ", currencies_tickers)
+#     print("currencies_labels_and_tickers: ", currencies_labels_and_tickers)
+#     print("prices.columns: ", prices.columns)
+#     print("prices.head(1): ", prices.head(1))
