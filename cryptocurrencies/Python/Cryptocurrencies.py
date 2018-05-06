@@ -1,3 +1,10 @@
+"""
+The time resolution of the data for the models to train on. Either 'daily' or 'hourly'.
+See `ETL.py` for more information.
+"""
+# model_data_resolution = 'daily'
+model_data_resolution = 'hourly'
+
 def main():
     ### Python Imports ###
 
@@ -17,7 +24,7 @@ def main():
     warnings.simplefilter('ignore')
     import seaborn as sns
 
-    from ETL import load_daily_csvs
+    from ETL import load_data
 
     # Model Training
     from sklearn.preprocessing import StandardScaler
@@ -44,35 +51,12 @@ def main():
 
     ### End Python Imports ###
 
-
-    # Data Importing (SQL)
+    # Data Importing (CSV/SQL)
+    load_source = 'csv'
     # bitcoin, bitcoin_cash, bitconnect, dash, ethereum, ethereum_classic, iota, litecoin, \
-    # monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_sql()
-    # Data Importing (CSV)
-    bitcoin, bitcoin_cash, bitconnect, dash, ethereum, ethereum_classic, iota, litecoin, \
-    monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_daily_csvs()
-
-    # TODO: Extract this to ETL.py
-    currencies_labels_tickers = np.array(
-        [['Bitcoin Cash', 'BCH'], ['Bitcoin', 'BTC'], ['BitConnect', 'BCC'], ['Dash', 'DASH'],
-         ['Ethereum Classic', 'ETC'], ['Ethereum', 'ETH'], ['Iota', 'MIOTA'], ['Litecoin', 'LTC'],
-         ['Monero', 'XMR'], ['Nem', 'XEM'], ['Neo', 'NEO'], ['Numeraire', 'NMR'], ['Omisego', 'OMG'],
-         ['Qtum', 'QTUM'], ['Ripple', 'XRP'], ['Stratis', 'STRAT'], ['Waves', 'WAVES']])
-    currencies_labels = currencies_labels_tickers[:, 0]
-    currencies_tickers = currencies_labels_tickers[:, 1]
-    currencies_labels_and_tickers = ["{} ({})".format(currencies_label, currencies_ticker)
-                                     for currencies_label, currencies_ticker in
-                                     zip(currencies_labels, currencies_tickers)]
-    num_currencies = len(currencies_labels_tickers)
-    currencies = pd.concat([bitcoin_cash, bitcoin, bitconnect, dash, ethereum_classic, ethereum, iota,
-                            litecoin, monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves],
-                           axis=1, keys=currencies_labels_and_tickers)
-    currencies.columns.names = ['Name', 'Currency Info']
-    currencies.set_index(pd.to_datetime(currencies.index), inplace=True)
-    currencies.index.name = 'Date'
-    currencies.sort_index(inplace=True)
-    # Retrieve the closing prices for the currencies.
-    prices = currencies.xs(key='Close', axis=1, level='Currency Info')
+    # monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_daily_data(source=load_source)
+    num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
+        load_data(resolution='daily', date_range=('2013-04-28', '2017-12-31'), source=load_source)
 
     # Figure Variables and Paths
     figure_dpi = 300
@@ -234,12 +218,6 @@ def main():
 
     dates = subset_prices_nonan.index.values
 
-    # We will predict closing prices based on these numbers of days preceding the date of prediction.
-    # The max `window_size` is `num_non_nan_days`, but even reasonably close values may result in poor models or even
-    # training failures (errors) due to small or even empty test sets, respectively, during cross validation.
-    # TODO: Also use 1 week and 2 weeks.
-    window_sizes = list(range(30, 361, 30))  # Window sizes in days - 1 to 12 months.
-
     # Directory Structure Creation (Machine Learning Models)
     currency_models_subdirs = ['{}/{}'.format(models_dir, currency_label.replace(' ', '_'))
                                for currency_label in subset_currencies_labels]
@@ -271,6 +249,17 @@ def main():
         # models_window_size_subdir = '{}/window_size_{}'.format(models_dir, window_size)
         # if not os.path.exists(models_window_size_subdir):
         #     os.makedirs(models_window_size_subdir)
+
+    # We will predict closing prices based on these numbers of days preceding the date of prediction.
+    # The max `window_size` is `num_non_nan_days`, but even reasonably close values may result in poor models or even
+    # training failures (errors) due to small or even empty test sets, respectively, during cross validation.
+    window_sizes = None
+    if model_data_resolution == 'daily':
+        window_sizes = [7, 14] + list(range(30, 361, 30))  # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
+    else:
+        window_sizes = [7, 14] # With just 14 days, we have 14 * 24 = 336 features per cryptocurrency.
+
+    num_currencies, currencies_labels, currencies_tickers, prices = load_data(resolution='daily', source=load_source)
 
     ### Main Loop ###
     for window_size in window_sizes:
@@ -340,7 +329,7 @@ def main():
         #                      'model__output_dim': [subset_num_currencies],
         #                      'model__epochs': [1000],
         #                      'model__batch_size': [100]}
-        hidden_layer_size = 1024
+        hidden_layer_size = 2048
         # three_hidden_layers = (hidden_layer_size, hidden_layer_size // 2, hidden_layer_size // 4)
         # four_hidden_layers = three_hidden_layers + (hidden_layer_size // 8,)
         # five_hidden_layers = four_hidden_layers + (hidden_layer_size // 16,)
@@ -348,11 +337,11 @@ def main():
         # hidden_layer_sizes = [three_hidden_layers, four_hidden_layers, five_hidden_layers, six_hidden_layers]
         hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 2, hidden_layer_size // 4,
                                hidden_layer_size // 8, hidden_layer_size // 16, hidden_layer_size // 32)]
-        params_neural_net = {'batch_size': [16, 32, 64],
+        params_neural_net = {'batch_size': [8, 16, 24], # A too large batch size results in device OOMs.
                              'hidden_layer_sizes': hidden_layer_sizes}
                             # {'input_dim': [window_size],
                             # 'output_dim': [subset_num_currencies]}
-        neural_net_epochs = 500
+        neural_net_epochs = 200
         # make_keras_picklable()
         # print(type(KerasRegressor(build_fn=create_keras_model)))
         # from model_saving_loading import save_keras_pipeline, load_keras_pipeline
