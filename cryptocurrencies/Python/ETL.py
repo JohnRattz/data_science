@@ -81,14 +81,20 @@ def load_data(resolution, date_range=None, allow_mixing=True, source='csv', writ
     # Record the starting and ending dates to retrieve data for.
     start_date, end_date = [None] * 2
     merge_hourly_to_daily = False
-    if resolution == 'daily' and date_range is not None:
+    if date_range is not None:
         desired_start_date, desired_end_date = date_range
-        start_date = desired_start_date if daily_source_start_date <= desired_start_date \
-                                           <= daily_source_end_date else daily_source_start_date
-        end_date = desired_end_date if daily_source_start_date <= desired_start_date <= desired_end_date \
-                                       <= hourly_source_end_date else daily_source_end_date
-        if daily_source_end_date < end_date:
-            merge_hourly_to_daily = True
+        if resolution=='daily':
+            start_date = desired_start_date if daily_source_start_date <= desired_start_date \
+                                               <= daily_source_end_date else daily_source_start_date
+            end_date = desired_end_date if daily_source_start_date <= desired_start_date <= desired_end_date \
+                                           <= hourly_source_end_date else daily_source_end_date
+            if daily_source_end_date < end_date:
+                merge_hourly_to_daily = True
+        else:
+            start_date = desired_start_date if hourly_source_start_date <= desired_start_date \
+                                               <= hourly_source_end_date else hourly_source_start_date
+            end_date = desired_end_date if hourly_source_start_date <= desired_start_date <= desired_end_date \
+                                           <= hourly_source_end_date else hourly_source_end_date
 
     # Load from the appropriate data source.
     if resolution=='daily':
@@ -105,6 +111,8 @@ def load_data(resolution, date_range=None, allow_mixing=True, source='csv', writ
         if resolution=='daily':
             vars[cryptocurrency_name].set_index(pd.to_datetime(vars[cryptocurrency_name]['Date']), inplace=True)
             vars[cryptocurrency_name].drop('Date', axis=1, inplace=True)
+        else:
+            vars[cryptocurrency_name] = set_str_date_col_to_datetime_index_hourly(vars[cryptocurrency_name])
         # Sort dates in ascending order (from oldest to newest).
         vars[cryptocurrency_name].sort_index(inplace=True)
 
@@ -121,22 +129,24 @@ def load_data(resolution, date_range=None, allow_mixing=True, source='csv', writ
             cryptocurrency['Market Cap'] = cryptocurrency['Market Cap'].apply(market_cap_to_int)
             cryptocurrency.to_sql(name=cryptocurrency_name, con=engine, if_exists='replace', index=False)
 
+    # Acquire the date range specified in `date_range` as a combination of daily and hourly data.
     if resolution=='daily':
         for cryptocurrency_name in cryptocurrency_names_daily_data:
             daily_data = vars[cryptocurrency_name]
-            # Acquire the date range specified in `date_range` as a combination of daily and hourly data.
             if merge_hourly_to_daily:
                 filename = cryptocurrencies_with_hourly_data.get(cryptocurrency_name, None)
                 if filename is not None:
                     hourly_data = pd.read_csv('../data/hourly/{}.csv'.format(filename), header=1)
                     hourly_data = set_str_date_col_to_datetime_index_hourly(hourly_data)
-                    hourly_data = hourly_data.loc[:pd.to_datetime(daily_source_end_date) + pd.DateOffset(days=1), :]
+                    hourly_data = hourly_data.loc[pd.to_datetime(end_date):
+                                                  pd.to_datetime(daily_source_end_date) + pd.DateOffset(days=1), :]
                     hourly_close_data = hourly_data[['Close']]
                     hourly_close_data_agg_daily = hourly_close_data.resample('D').mean()
                     vars[cryptocurrency_name] = pd.concat([daily_data, hourly_close_data_agg_daily])
     else:
-        for cryptocurrency_name, _ in cryptocurrencies_with_hourly_data.items():
-            vars[cryptocurrency_name] = set_str_date_col_to_datetime_index_hourly(vars[cryptocurrency_name])
+        for cryptocurrency_name in cryptocurrencies_with_hourly_data:
+            vars[cryptocurrency_name] = vars[cryptocurrency_name].loc[start_date:end_date, :]
+
     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
         combine_data(vars, resolution=resolution)
 
@@ -206,10 +216,10 @@ def combine_data(vars, resolution):
 
 
 if __name__ == '__main__':
+    # num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
+    #     load_data(resolution='daily', date_range=('2013-04-28', '2017-12-31'))
     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
-        load_data(resolution='daily', date_range=('2013-04-28', '2017-12-31'))
-#     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
-#         load_data(resolution='hourly')
+        load_data(resolution='hourly', date_range=('2017-07-01', '2017-12-31'))
 #     print(prices.index[[0,-1]], type(prices.index[0]))
 #     print("num_currencies: ", num_currencies)
 #     print("currencies_labels: ", currencies_labels)
