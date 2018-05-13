@@ -93,7 +93,7 @@ def load_data(resolution, date_range=None, allow_mixing=True, source='csv', writ
         else:
             start_date = desired_start_date if hourly_source_start_date <= desired_start_date \
                                                <= hourly_source_end_date else hourly_source_start_date
-            end_date = desired_end_date if hourly_source_start_date <= desired_start_date <= desired_end_date \
+            end_date = desired_end_date if hourly_source_start_date <= start_date <= desired_end_date \
                                            <= hourly_source_end_date else hourly_source_end_date
 
     # Load from the appropriate data source.
