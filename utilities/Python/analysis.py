@@ -7,7 +7,8 @@ from scipy.stats import norm
 
 def find_optimal_portfolio_weights(log_returns, return_risk_free=0, markowitz_iterations=1000, plot=False):
     """
-    Finds the optimal fractional composition (the "weights") for a portfolio of financial assets.
+    Finds the optimal fractional composition (the "weights") for a portfolio of financial assets using the
+    Markowitz portfolio optimization technique.
     # TODO: Increase `markowitz_iterations` to 100000 when done programming.
 
     Parameters
@@ -26,8 +27,8 @@ def find_optimal_portfolio_weights(log_returns, return_risk_free=0, markowitz_it
     """
     portfolio_returns = np.empty(markowitz_iterations, dtype=np.float64)
     portfolio_volatilities = np.empty(markowitz_iterations, dtype=np.float64)
-    subset_log_returns_mean = log_returns.mean()
-    subset_log_returns_cov = log_returns.cov()
+    log_returns_mean = log_returns.mean()
+    log_returns_cov = log_returns.cov()
     num_assets = len(log_returns.columns)
     # Weights are the fractional amounts of assets in the hypothetical portfolio.
     # The optimal weights are the ones that maximize the Sharpe ratio for the portfolio.
@@ -35,8 +36,8 @@ def find_optimal_portfolio_weights(log_returns, return_risk_free=0, markowitz_it
     for i in range(markowitz_iterations):
         weights[i] = np.random.random(num_assets)
         weights[i] /= np.sum(weights[i])
-        portfolio_returns[i] = np.sum(weights[i] * subset_log_returns_mean)
-        portfolio_volatilities[i] = np.sqrt(np.dot(weights[i].T, np.dot(subset_log_returns_cov, weights[i])))
+        portfolio_returns[i] = np.sum(weights[i] * log_returns_mean)
+        portfolio_volatilities[i] = np.sqrt(np.dot(weights[i].T, np.dot(log_returns_cov, weights[i])))
     if plot: # Plot the scattered points, showing the "efficient frontier".
         portfolios = pd.DataFrame({'Return': portfolio_returns, 'Volatility': portfolio_volatilities})
         portfolios.plot(x='Volatility', y='Return', kind='scatter', figsize=(10, 6), s=12, alpha=0.2)
@@ -48,9 +49,9 @@ def find_optimal_portfolio_weights(log_returns, return_risk_free=0, markowitz_it
     return pd.Series(data=weights[index_max_sharpe], index=log_returns.columns)
 
 
-def calc_betas(log_returns, market_index):
+def calc_CAPM_betas(log_returns, market_index):
     """
-    Calculate the beta values of assets based on their logarithmic returns and a specified market index.
+    Calculate the CAPM beta values of assets based on their logarithmic returns and a specified market index.
 
     Parameters
     ----------
