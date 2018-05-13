@@ -10,7 +10,8 @@ engine = create_engine('mysql+pymysql://john:Iwbicvi1994mysql@localhost:3306/cry
 def load_data(resolution, date_range=None, allow_mixing=True, source='csv', write_to_SQL=False):
     """
     Load daily data for 17 cryptocurrencies from April 28, 2013 to November 7, 2017.
-    The data was obtained from https://www.kaggle.com/sudalairajkumar/cryptocurrencypricehistory.
+    The daily data was obtained from https://www.kaggle.com/sudalairajkumar/cryptocurrencypricehistory.
+    The hourly data was obtained from http://www.cryptodatadownload.com/.
 
     Parameters
     ----------

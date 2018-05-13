@@ -11,7 +11,7 @@ from sklearn.metrics import r2_score
 
 import keras
 from keras.models import Sequential
-from keras.layers import Dense
+from keras.layers import Dense # TODO: Add Dropout, Convolution, and Max Pooling?
 from sklearn.preprocessing import StandardScaler
 
 import numpy as np
@@ -34,12 +34,6 @@ def create_keras_regressor(input_dim, hidden_layer_sizes, output_dim, optimizer=
         regressor.add(Dense(units=layer_size, kernel_initializer='uniform', activation='relu'))
     # Adding the output layer
     regressor.add(Dense(units=output_dim, kernel_initializer='uniform'))
-    # Adding the input layer and the first hidden layer
-    # regressor.add(Dense(units=6, kernel_initializer='uniform', activation='relu', input_dim=input_dim))
-    # Adding the second hidden layer
-    # regressor.add(Dense(units=6, kernel_initializer='uniform', activation='relu'))
-    # Adding the output layer
-    # regressor.add(Dense(units=1, kernel_initializer='uniform', activation='sigmoid'))
     # Compiling the ANN
     regressor.compile(optimizer=optimizer, loss=loss, metrics=metrics)
     return regressor
