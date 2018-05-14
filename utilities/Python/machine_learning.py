@@ -11,7 +11,7 @@ from sklearn.metrics import r2_score
 
 import keras
 from keras.models import Sequential
-from keras.layers import Dense # TODO: Add Dropout, Convolution, and Max Pooling?
+from keras.layers import Dense, Dropout # TODO: Add Dropout, Convolution, and Max Pooling?
 from sklearn.preprocessing import StandardScaler
 
 import numpy as np
@@ -22,15 +22,22 @@ def create_keras_regressor(input_dim, hidden_layer_sizes, output_dim, optimizer=
                            metrics=['accuracy'], **kwargs):
     """
     TODO: Document this function.
+    TODO: Use max norm (Dense(kernel_constraint=maxnorm(m)))?
     :return:
     """
+    dropout_rate = kwargs.get('dropout_rate', None)
     # print("input_dim, hidden_layer_sizes, output_dim: ", input_dim, hidden_layer_sizes, output_dim)
     regressor = Sequential()
+    # Add dropout for input layer.
+    if dropout_rate is not None:
+        regressor.add(Dropout(dropout_rate, input_shape=(input_dim,)))
     # Adding the input layer and the first hidden layer
     regressor.add(Dense(units=hidden_layer_sizes[0], kernel_initializer='uniform', activation='relu',
                         input_dim=input_dim))
     # Adding the remaining hidden layers.
     for layer_size in hidden_layer_sizes:
+        if dropout_rate is not None:
+            regressor.add(Dropout(dropout_rate))
         regressor.add(Dense(units=layer_size, kernel_initializer='uniform', activation='relu'))
     # Adding the output layer
     regressor.add(Dense(units=output_dim, kernel_initializer='uniform'))
@@ -42,19 +49,19 @@ def create_keras_regressor(input_dim, hidden_layer_sizes, output_dim, optimizer=
 def keras_reg_grid_search(X, y, build_fn, input_dim, output_dim, param_grid,
                           epochs, scoring, cv, scale=True, verbose=0):
     """
-    TODO: Document this function (`param_grid` must have a `batch_size` entry).
+    TODO: Document this function (e.g. `param_grid` requires 'batch_size' and 'hidden_layer_sizes` entries)
     :return:
     """
-    def train_on_param_set(batch_size, param_set=dict()):
+    def train_on_param_set(batch_size, hidden_layer_sizes, param_set):
         """
         TODO: Document this function.
         :return:
         """
         model = None
-        if len(param_set) == 0:
-            model = build_fn(input_dim=input_dim, output_dim=output_dim)
-        else:
-            model = build_fn(input_dim=input_dim, output_dim=output_dim, **param_set)
+        # if len(param_set) == 0:
+        #     model = build_fn(input_dim=input_dim, hidden_layer_sizes=hidden_layer_sizes, output_dim=output_dim)
+        # else:
+        model = build_fn(input_dim=input_dim, hidden_layer_sizes=hidden_layer_sizes, output_dim=output_dim, **param_set)
         score = 0
         n_splits = 0
         # Train and test on the cross validation folds.
@@ -92,9 +99,9 @@ def keras_reg_grid_search(X, y, build_fn, input_dim, output_dim, param_grid,
     best_score = -float('inf')
     best_batch_size = None
     for param_set in param_sets:
-        batch_size = param_set['batch_size']
-        # print("param_set: ", param_set)
-        model, score = train_on_param_set(batch_size, param_set)
+        batch_size = param_set.pop('batch_size')
+        hidden_layer_sizes = param_set.pop('hidden_layer_sizes')
+        model, score = train_on_param_set(batch_size, hidden_layer_sizes, param_set)
         if score > best_score:
             best_model = model
             best_score = score
