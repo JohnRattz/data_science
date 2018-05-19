@@ -41,7 +41,7 @@ def main():
 
     # Custom utility functions
     sys.path.insert(0, '../../' + utilities_dir)
-    from analysis import find_optimal_portfolio_weights, calc_betas, CAPM_RoR, run_monte_carlo_financial_simulation
+    from analysis import find_optimal_portfolio_weights, calc_CAPM_betas, CAPM_RoR, run_monte_carlo_financial_simulation
     from conversions import pandas_dt_to_str
     from plotting import add_value_text_to_seaborn_barplot, monte_carlo_plot_confidence_band
 
@@ -92,13 +92,20 @@ def main():
         currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
         plt.savefig('{}/{}_price_trend'.format(currency_figures_subdir, currency_label_no_spaces))
 
-    # Value Correlations
-    # TODO: Instead of price correlations, find return correlations.
+    # Find the returns.
+    returns = prices.pct_change()
 
+    # Value Correlations
     plt.figure(figsize=(12, 6), dpi=figure_dpi)
+    # Price Correlations
     price_correlations = prices.corr()
-    correlations = sns.clustermap(price_correlations, annot=True)
-    correlations.savefig('{}/correlations.png'.format(figures_dir))
+    price_correlations_fig = sns.clustermap(price_correlations, annot=True)
+    price_correlations_fig.savefig('{}/price_correlations.png'.format(figures_dir))
+    plt.clf()
+    # Return Correlations
+    returns_correlations = returns.corr()
+    returns_correlations_fig = sns.clustermap(returns_correlations, annot=True)
+    returns_correlations_fig.savefig('{}/return_correlations.png'.format(figures_dir))
     plt.clf()
 
     # Removing Currencies with Short Histories
@@ -142,7 +149,6 @@ def main():
     print("Considering {} days of price information (as many as without NaN values).".format(num_non_nan_days))
 
     # Find the returns.
-    returns = prices.pct_change()
     subset_returns = subset_prices_nonan.pct_change()
     log_returns = np.log(prices / prices.shift(1))
     subset_log_returns = log_returns.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
@@ -161,7 +167,7 @@ def main():
 
     # Find (daily) asset betas (covariance_with_market / market_variance).
     market_index = 'Bitcoin (BTC)'
-    betas = calc_betas(log_returns, market_index)
+    betas = calc_CAPM_betas(log_returns, market_index)
     betas.sort_values(ascending=False, inplace=True)
     subset_betas = betas.drop(labels=currencies_labels_and_tickers_to_remove)
     # Create a visualization with the beta values.
@@ -221,34 +227,9 @@ def main():
     # Directory Structure Creation (Machine Learning Models)
     currency_models_subdirs = ['{}/{}'.format(models_dir, currency_label.replace(' ', '_'))
                                for currency_label in subset_currencies_labels]
-    # TODO: Remove these unused code comments.
-    # subset_currency_figures_subdirs = ['{}/{}'.format(figures_dir, currency_label.replace(' ', '_'))
-    #                                    for currency_label in subset_currencies_labels]
     for currency_models_subdir in currency_models_subdirs:
         if not os.path.exists(currency_models_subdir):
             os.makedirs(currency_models_subdir)
-    # Window Size Subdirectories
-    # for window_size in window_sizes:
-        # Figures
-        # Single Asset Models Figures
-        # for currency_figures_subdir in subset_currency_figures_subdirs:
-            # currency_figures_window_size_subdir = '{}/window_size_{}'.format(currency_figures_subdir, window_size)
-            # if not os.path.exists(currency_figures_window_size_subdir):
-            #     os.makedirs(currency_figures_window_size_subdir)
-        # Collective Models Figures
-        # figures_window_size_subdir = '{}/window_size_{}'.format(figures_dir, window_size)
-        # if not os.path.exists(figures_window_size_subdir):
-        #     os.makedirs(figures_window_size_subdir)
-        # Models
-        # Single Asset Models
-        # for currency_models_subdir in currency_models_subdirs:
-        #     currency_models_window_size_subdir = '{}/window_size_{}'.format(currency_models_subdir, window_size)
-        #     if not os.path.exists(currency_models_window_size_subdir):
-        #         os.makedirs(currency_models_window_size_subdir)
-        # Collective Models
-        # models_window_size_subdir = '{}/window_size_{}'.format(models_dir, window_size)
-        # if not os.path.exists(models_window_size_subdir):
-        #     os.makedirs(models_window_size_subdir)
 
     # We will predict closing prices based on these numbers of days preceding the date of prediction.
     # The max `window_size` is `num_non_nan_days`, but even reasonably close values may result in poor models or even
@@ -257,9 +238,25 @@ def main():
     if model_data_resolution == 'daily':
         window_sizes = [7, 14] + list(range(30, 361, 30))  # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
     else:
-        window_sizes = [7, 14] # With just 14 days, we have 14 * 24 = 336 features per cryptocurrency.
+        window_sizes = [7, 14] + list(range(30, 361, 30))  # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
+        # With just 14 days, we have 14 * 24 = 336 features per cryptocurrency.
 
-    num_currencies, currencies_labels, currencies_tickers, prices = load_data(resolution='daily', source=load_source)
+    # Load the hourly data for model training if such has been specified.
+    if model_data_resolution=='hourly':
+        num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
+            load_data(resolution=model_data_resolution, date_range=('2017-07-01', '2017-12-31'), source=load_source)
+        currencies_labels_and_tickers_to_remove = \
+            [label_and_ticker_to_remove for label_and_ticker_to_remove in currencies_labels_and_tickers_to_remove
+             if label_and_ticker_to_remove in prices.columns]
+        subset_prices = prices.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
+        subset_currencies_labels = [currency_label for currency_label in currencies_labels
+                                    if currency_label not in currencies_labels_to_remove]
+        subset_currencies_tickers = [currency_ticker for currency_ticker in currencies_tickers
+                                     if currency_ticker not in currencies_tickers_to_remove]
+        subset_currencies_labels_and_tickers = subset_prices.columns.values
+        subset_num_currencies = len(subset_prices.columns)
+        subset_prices_nonan = subset_prices.dropna()
+        dates = subset_prices_nonan.index.values
 
     ### Main Loop ###
     for window_size in window_sizes:
@@ -336,9 +333,10 @@ def main():
         # six_hidden_layers = five_hidden_layers + (hidden_layer_size // 32,)
         # hidden_layer_sizes = [three_hidden_layers, four_hidden_layers, five_hidden_layers, six_hidden_layers]
         hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 2, hidden_layer_size // 4,
-                               hidden_layer_size // 8, hidden_layer_size // 16, hidden_layer_size // 32)]
-        params_neural_net = {'batch_size': [8, 16, 24], # A too large batch size results in device OOMs.
-                             'hidden_layer_sizes': hidden_layer_sizes}
+                               hidden_layer_size // 8)]
+        params_neural_net = {'batch_size': [8, 12, 16], # A too large batch size results in device OOMs.
+                             'hidden_layer_sizes': hidden_layer_sizes,
+                             'dropout_rate': [0.1, 0.3, 0.5, 0.7, 0.9]}
                             # {'input_dim': [window_size],
                             # 'output_dim': [subset_num_currencies]}
         neural_net_epochs = 200
@@ -354,8 +352,8 @@ def main():
 
 
         # Linear Models
-        # TODO: Lasso regressor (only if return correlations are low)
-        # TODO: Ridge (sklearn.linear_model.Ridge) regressor (only if return correlations are high)
+        # TODO: Ridge (sklearn.linear_model.Ridge) regressor (if variance among price correlations
+        # TODO: for individual assets tend to be high)
 
         # SVM models
         # TODO: Support Vector regressor
@@ -460,9 +458,9 @@ def main():
                     # In this case, Keras needs to be trained differently to save its models to the filesystem.
                     if model_to_test == model_neural_net:
                         model, score, best_batch_size = \
-                            keras_reg_grid_search(X_subset, y_subset, build_fn=create_keras_regressor,
-                                                  input_dim=window_size, output_dim=1, param_grid=params_neural_net,
-                                                  epochs=neural_net_epochs, scoring=r2_score, cv=cv, scale=True)
+                            keras_reg_grid_search(X_subset, y_subset, build_fn=create_keras_regressor, output_dim=1,
+                                                  param_grid=param_grid, epochs=neural_net_epochs, cv=cv,
+                                                  scoring=r2_score, scale=True)
                     else:
                         grid_search = GridSearchCV(model_to_test, param_grid, scoring=make_scorer(r2_score),
                                                    cv=cv, n_jobs=1)#max(1, round(num_cores/2)))
@@ -516,10 +514,9 @@ def main():
                 # In this case, Keras needs to be trained differently to save its models to the filesystem.
                 if model_to_test == model_neural_net:
                     model, score, best_batch_size = \
-                        keras_reg_grid_search(X, y, build_fn=create_keras_regressor,
-                                              input_dim=subset_num_currencies * window_size,
-                                              output_dim=subset_num_currencies, param_grid=params_neural_net,
-                                              epochs=neural_net_epochs, scoring=r2_score, cv=cv, scale=True)
+                        keras_reg_grid_search(X, y, build_fn=create_keras_regressor, output_dim=subset_num_currencies,
+                                              param_grid=params_neural_net, epochs=neural_net_epochs, cv=cv,
+                                              scoring=r2_score, scale=True)
                 else:
                     grid_search = GridSearchCV(model_to_test, param_grid, scoring=make_scorer(r2_score),
                                                cv=cv, n_jobs=1)#max(1, round(num_cores/2)))
@@ -803,7 +800,7 @@ def main():
 
 
 if __name__ == '__main__':
-    # Remove TensorFlow debugging prints.
+    # Remove TensorFlow (Keras' default backend) debugging prints.
     import os
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     main()

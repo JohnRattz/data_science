@@ -46,11 +46,23 @@ def create_keras_regressor(input_dim, hidden_layer_sizes, output_dim, optimizer=
     return regressor
 
 
-def keras_reg_grid_search(X, y, build_fn, input_dim, output_dim, param_grid,
-                          epochs, scoring, cv, scale=True, verbose=0):
+def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv, scoring=r2_score, scale=True, verbose=0):
     """
-    TODO: Document this function (e.g. `param_grid` requires 'batch_size' and 'hidden_layer_sizes` entries)
-    :return:
+    TODO: Document this function (X, y, build_fn
+
+    Parameters
+    ----------
+    output_dim: int
+        The number of outputs of the neural network.
+    param_grid: dict
+        A dictionary of parameter names and values that should be tested.
+        Must contain 'batch_size' and 'hidden_layer_sizes` entries.
+    epochs: int
+        The number of epochs to run during training.
+    scoring: function
+        A scoring function, like `sklearn.metrics.r2_score`.
+    scale: bool
+        Whether or not to standard scale the data before
     """
     def train_on_param_set(batch_size, hidden_layer_sizes, param_set):
         """
@@ -70,9 +82,9 @@ def keras_reg_grid_search(X, y, build_fn, input_dim, output_dim, param_grid,
             #       train_indices.shape, test_indices.shape)
             X_train, X_test = X[train_indices], X[test_indices]
             y_train, y_test = y[train_indices], y[test_indices]
-            X_scaler = StandardScaler()
-            y_scaler = StandardScaler()
             if scale:
+                X_scaler = StandardScaler()
+                y_scaler = StandardScaler()
                 X_scaler.fit(X_train)
                 X_train = X_scaler.transform(X_train)
                 X_test = X_scaler.transform(X_test)
@@ -91,6 +103,8 @@ def keras_reg_grid_search(X, y, build_fn, input_dim, output_dim, param_grid,
         score = score / n_splits
         # print("score: ", score)
         return model, score
+
+    input_dim = X.shape[1]
 
     # print("Keras model input shape: ", X.shape, y.shape)
     # Test a model for each parameter set.
