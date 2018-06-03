@@ -2,8 +2,9 @@ import itertools as it
 
 def get_combinations(param_grid):
     """
-    Returns a list of dictionaries comprising all possible combinations of values, with the possible values that a key
-    can map to in the output dictionaries being specified in lists - one list for each key in the input dictionary.
+    Returns a list of dictionaries comprising all possible combinations of values,
+    with the possible values that a key can map to in the output dictionaries being
+    specified in lists - one list for each key in the input dictionary.
 
     Parameters
     ----------
