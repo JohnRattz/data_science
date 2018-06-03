@@ -9,7 +9,8 @@ engine = create_engine('mysql+pymysql://john:Iwbicvi1994mysql@localhost:3306/cry
 
 def load_data(resolution, date_range=None, allow_mixing=True, source='csv', write_to_SQL=False):
     """
-    Load daily data for 17 cryptocurrencies from April 28, 2013 to November 7, 2017.
+    Load data for cryptocurrencies. The cryptocurrencies and date ranges available depend on
+    the resolution of the data, which can be either daily or hourly.
     The daily data was obtained from https://www.kaggle.com/sudalairajkumar/cryptocurrencypricehistory.
     The hourly data was obtained from http://www.cryptodatadownload.com/.
 
@@ -17,6 +18,7 @@ def load_data(resolution, date_range=None, allow_mixing=True, source='csv', writ
     ----------
     resolution: str
         Specifies the resolution of the data to load. Either 'daily' or 'hourly'.\n
+        TODO: Document which cryptocurrencies are in daily and hourly data.
         Daily data spans April 28, 2013 to November 7, 2017.\n
         Hourly data spans July 1, 2017 to April 27, 2018 and covers fewer cryptocurrencies than daily data.
     date_range: tuple
@@ -155,12 +157,15 @@ def load_data(resolution, date_range=None, allow_mixing=True, source='csv', writ
 
 def combine_data(vars, resolution):
     """
-    Combines data into a single pandas `DataFrame`, indexed by date.
+    Combines data (stored in `vars`) for several cryptocurrencies into a single
+    pandas `DataFrame`, indexed by date and containing closing values for each
+    cryptocurrency in columns named with the currency labels and tickers.
 
     Parameters
     ----------
     vars: dict
-        Mapping of cryptocurrency names (e.g. 'bitcoin') to `DataFrame` objects.
+        Mapping of cryptocurrency names (e.g. 'bitcoin') to `DataFrame` objects - each
+        containing at least a 'Close' column with the closing values through time.
     resolution: str
         Specifies the resolution of the data to load. Either 'daily' or 'hourly'.\n
         Daily data spans April 28, 2013 to November 7, 2017.\n
