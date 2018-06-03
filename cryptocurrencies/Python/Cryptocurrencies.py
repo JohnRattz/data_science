@@ -2,31 +2,29 @@
 The time resolution of the data for the models to train on. Either 'daily' or 'hourly'.
 See `ETL.py` for more information.
 """
-# model_data_resolution = 'daily'
-model_data_resolution = 'hourly'
-
 def main():
-    ### Python Imports ###
+    ### Imports ###
 
     # Import miscellaneous global variables.
     import sys
     sys.path.insert(0, '../../globals/Python')
-    from globals import utilities_dir
+    from globals import utilities_dir, num_lgc_prcs
 
     import os
     import warnings
     import time
 
-    import matplotlib.pyplot as plt
     import numpy as np
     import pandas as pd
-
+    import matplotlib.pyplot as plt
     warnings.simplefilter('ignore')
     import seaborn as sns
+    from plotting import KerasPlotLosses
 
     from ETL import load_data
 
     # Model Training
+    import pickle
     from sklearn.preprocessing import StandardScaler
     from sklearn.svm import SVR
     from sklearn.neural_network import MLPRegressor
@@ -35,9 +33,9 @@ def main():
     from sklearn.model_selection import TimeSeriesSplit
     from sklearn.model_selection import GridSearchCV
     from sklearn.metrics import make_scorer, r2_score
-    import pickle
-    # from model_saving_loading import save_keras_model, load_keras_model
+    import keras
     import keras.models as ks_models
+    from machine_learning import create_keras_regressor, keras_reg_grid_search
 
     # Custom utility functions
     sys.path.insert(0, '../../' + utilities_dir)
@@ -45,14 +43,29 @@ def main():
     from conversions import pandas_dt_to_str
     from plotting import add_value_text_to_seaborn_barplot, monte_carlo_plot_confidence_band
 
-    # Machine Learning
-    import keras
-    from machine_learning import create_keras_regressor, keras_reg_grid_search
+    # Optimizers
+    from keras.optimizers import Adam
 
-    ### End Python Imports ###
+    ### End Imports ###
 
-    # Data Importing (CSV/SQL)
+    ### Main Settings ###
+
+    # Data Importing
+    # Whether to load from CSV files or a local MySQL database ('csv' or 'sql').
     load_source = 'csv'
+
+    # Machine Learning Settings
+    # The resolution of data for the machine learning models.
+    # model_data_resolution = 'daily'
+    model_data_resolution = 'hourly'
+    # The number of logical processors to use during grid search.
+    num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
+    # Whether or not to use cross validation in Keras grid search.
+    keras_use_cv_grd_srch = False
+
+    ### End Main Settings ###
+
+    # Data Importing
     # bitcoin, bitcoin_cash, bitconnect, dash, ethereum, ethereum_classic, iota, litecoin, \
     # monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_daily_data(source=load_source)
     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
@@ -285,28 +298,28 @@ def main():
         # Neural Network models
         # Multilayer Perceptron regressor
         # model_neural_net = MLPRegressor()
-        # neural_net_hidden_layer_sizes = []
+        neural_net_hidden_layer_sizes = []
         # The number of neurons in the hidden layers will be around half the mean of the number of inputs and outputs.
         # hidden_layer_median_size = int(round((num_features + subset_num_currencies)/2))
-        # single_hidden_layer_sizes = list(range(200,39,-40))
-        # for layer_size in single_hidden_layer_sizes:
-        #     neural_net_hidden_layer_sizes.append((layer_size, layer_size))  # Two hidden layers
-        #     neural_net_hidden_layer_sizes.append((layer_size,))  # One hidden layer
+        single_hidden_layer_sizes = list(range(200,39,-40))
+        for layer_size in single_hidden_layer_sizes:
+            neural_net_hidden_layer_sizes.append((layer_size, layer_size))  # Two hidden layers
+            neural_net_hidden_layer_sizes.append((layer_size,))  # One hidden layer
         # params_neural_net = {'hidden_layer_sizes': neural_net_hidden_layer_sizes,
         #                      'max_iter': [1000000],
         #                      'beta_1': [0.6, 0.7, 0.8],
         #                      'beta_2': [0.9, 0.95, 0.999],
         #                      'alpha': [1e-10, 1e-8]}
         from sklearn.pipeline import Pipeline
-        # model_neural_net = Pipeline([
-        #     ('scaler', StandardScaler()),
-        #     ('model', MLPRegressor())
-        # ])
-        # params_neural_net = {'model__hidden_layer_sizes': neural_net_hidden_layer_sizes,
-        #                      'model__max_iter': [10000],
-        #                      'model__beta_1': [0.6, 0.7, 0.8],
-        #                      'model__beta_2': [0.9, 0.95, 0.999],
-        #                      'model__alpha': [1e-10, 1e-8]}
+        model_neural_net = Pipeline([
+            ('scaler', StandardScaler()),
+            ('model', MLPRegressor())
+        ])
+        params_neural_net = {'model__hidden_layer_sizes': neural_net_hidden_layer_sizes,
+                             'model__max_iter': [5000],
+                             'model__beta_1': [0.7, 0.8, 0.9],
+                             'model__beta_2': [0.9, 0.95, 0.999],
+                             'model__alpha': [1e-10, 1e-8, 1e-4]}
 
         from keras.wrappers.scikit_learn import KerasRegressor
         # regressor = KerasRegressor(build_fn=create_keras_model, epochs=100, batch_size=10) # TODO: Set verbosity?
@@ -320,26 +333,38 @@ def main():
         #     ('scaler', StandardScaler()),
         #     ('model', KerasRegressor(build_fn=create_keras_model))
         # ])
-        model_neural_net = "Keras_NN"
+        keras_model_neural_net = "Keras_NN"
         # params_neural_net = {'model__input_dim': [subset_num_currencies],
         #                      'model__hidden_layer_sizes': neural_net_hidden_layer_sizes,
         #                      'model__output_dim': [subset_num_currencies],
         #                      'model__epochs': [1000],
         #                      'model__batch_size': [100]}
-        hidden_layer_size = 2048
+        hidden_layer_size = 512
         # three_hidden_layers = (hidden_layer_size, hidden_layer_size // 2, hidden_layer_size // 4)
         # four_hidden_layers = three_hidden_layers + (hidden_layer_size // 8,)
         # five_hidden_layers = four_hidden_layers + (hidden_layer_size // 16,)
         # six_hidden_layers = five_hidden_layers + (hidden_layer_size // 32,)
         # hidden_layer_sizes = [three_hidden_layers, four_hidden_layers, five_hidden_layers, six_hidden_layers]
-        hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 2, hidden_layer_size // 4,
-                               hidden_layer_size // 8)]
-        params_neural_net = {'batch_size': [8, 12, 16], # A too large batch size results in device OOMs.
-                             'hidden_layer_sizes': hidden_layer_sizes,
-                             'dropout_rate': [0.1, 0.3, 0.5, 0.7, 0.9]}
-                            # {'input_dim': [window_size],
-                            # 'output_dim': [subset_num_currencies]}
-        neural_net_epochs = 200
+
+        # hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 2, hidden_layer_size // 4,
+        #                        hidden_layer_size // 8)]
+        # hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 4, hidden_layer_size // 8,
+        #                        hidden_layer_size // 16)]
+        # hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 4, hidden_layer_size // 8)]
+        hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 8)]
+        keras_params_neural_net = \
+            {'batch_size': [4, 8, 12], # A too large batch size results in device OOMs.
+             'hidden_layer_sizes': hidden_layer_sizes,
+             'dropout_rate': [0.1, 0.2],
+             'optimizer': [Adam],
+             # Parameters for Adam optimizer.
+             'lr': [1e-4, 1e-5, 1e-6],
+             'beta_1': [0.7, 0.8, 0.9],
+             'beta_2': [0.9, 0.95, 0.999]}
+        # The number of epochs to train for in cross validation.
+        keras_neural_net_epochs_grd_srch = 4 # TODO: Make this larger.
+        # The number of epochs to train for after cross validation.
+        keras_neural_net_epochs = 50 # TODO: Make this larger if needed.
         # make_keras_picklable()
         # print(type(KerasRegressor(build_fn=create_keras_model)))
         # from model_saving_loading import save_keras_pipeline, load_keras_pipeline
@@ -405,15 +430,18 @@ def main():
         # param_sets = [params_extra_trees, params_random_forest] # ensemble_trees
         # models_to_test = [model_extra_trees, model_random_forest, model_knn] # knn_allowed
         # param_sets = [params_extra_trees, params_random_forest, params_knn] # knn_allowed
-        models_to_test = [model_neural_net]  # neural_network
-        param_grids = [params_neural_net]  # neural_network
+        # models_to_test = [model_neural_net]  # neural_network
+        # param_grids = [params_neural_net]  # neural_network
+        models_to_test = [keras_model_neural_net]  # Keras neural_network
+        param_grids = [keras_params_neural_net]  # Keras neural_network
         # models_to_test = [model_svr]  # SVR
         # param_sets = [params_svr]  # SVR
 
         load_models = False  # Whether or not to load models that have already been created by this program.
         # Train models on different amounts of division of the data into training and test sets.
         # Specify the cross validation method.
-        cv = TimeSeriesSplit(n_splits=10)
+        cv = TimeSeriesSplit(n_splits=5)
+        keras_cv = cv if keras_use_cv_grd_srch else None
 
         ### Model Training ###
 
@@ -424,6 +452,8 @@ def main():
             currency_label = subset_currencies_labels[currency_index]
             currency_label_no_spaces = currency_label.replace(' ', '_')
             currency_models_subdir = '{}/{}'.format(models_dir, currency_label_no_spaces)
+            currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
+            keras_figures_subdir = '{}/{}'.format(currency_figures_subdir, 'keras')
 
             # Paths
             model_base_path = "{}/{}_model_{}".format(currency_models_subdir, currency_label_no_spaces, window_size)
@@ -432,6 +462,7 @@ def main():
             # Data for only this cryptocurrency.
             X_subset = X[:, currency_index::subset_num_currencies]
             y_subset = y[:, currency_index].reshape(-1, 1)
+            # print(y_subset.shape, y[:, currency_index].shape)
             # print("X_subset[:5], y_subset[:5]: ", X_subset[:5], y_subset[:5])
 
             # Feature Scaling
@@ -445,8 +476,9 @@ def main():
                 print("Currently training a model for {} with a window size of {} days."
                     .format(currency_label_and_ticker, window_size))
 
-                # Tuples of scores and the corresponding models (along with the best batch sizes for Keras models)
-                score_model_batch_size_tuples = []
+                # Tuples of scores and the corresponding models,
+                # best batch sizes for Keras models, and model index.
+                score_model_batch_size_index_tuples = []
 
                 # Create the models.
                 for i in range(len(models_to_test)):
@@ -456,30 +488,33 @@ def main():
                     # print("model_to_test, param_set: ", model_to_test, param_set)
                     model = None
                     # In this case, Keras needs to be trained differently to save its models to the filesystem.
-                    if model_to_test == model_neural_net:
+                    if model_to_test == keras_model_neural_net:
                         model, score, best_batch_size = \
                             keras_reg_grid_search(X_subset, y_subset, build_fn=create_keras_regressor, output_dim=1,
-                                                  param_grid=param_grid, epochs=neural_net_epochs, cv=cv,
-                                                  scoring=r2_score, scale=True)
+                                                  param_grid=param_grid, epochs=keras_neural_net_epochs_grd_srch,
+                                                  cv=keras_cv, scoring=r2_score, scale=True,
+                                                  verbose=1)
                     else:
                         grid_search = GridSearchCV(model_to_test, param_grid, scoring=make_scorer(r2_score),
-                                                   cv=cv, n_jobs=1)#max(1, round(num_cores/2)))
-                        grid_search.fit(X_subset, y_subset)
+                                                   cv=cv, n_jobs=num_lgc_prcs_grd_srch)
+                        grid_search.fit(X_subset, y_subset.ravel())
                         model = grid_search.best_estimator_
                         score = grid_search.best_score_
-                    score_model_batch_size_tuples.append((score, model, best_batch_size))
+                    score_model_batch_size_index_tuples.append((score, model, best_batch_size, i))
                 time.sleep(1)  # Wait 1 second for printing from GridSearchCV to complete.
                 # Choose the model with the best score.
-                score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
-                best_score = score_model_batch_size_tuples[0][0]
-                model = score_model_batch_size_tuples[0][1]
-                best_batch_size = score_model_batch_size_tuples[0][2]
+                score_model_batch_size_index_tuples.sort(key=lambda tup: tup[0], reverse=True)
+                best_score = score_model_batch_size_index_tuples[0][0]
+                model = score_model_batch_size_index_tuples[0][1]
+                best_batch_size = score_model_batch_size_index_tuples[0][2]
+                best_param_grid = param_grids[score_model_batch_size_index_tuples[0][3]]
                 print("Best model and score for asset {} and window size {}: {}"
                       .format(currency_label_and_ticker, window_size, (model, best_score)))
                 # Save the model for this window size after fitting to the whole dataset.
                 if type(model) is keras.models.Sequential:
-                    model.fit(X_subset_scaled, y_subset_scaled, epochs=neural_net_epochs,
-                              batch_size=best_batch_size, verbose=0)
+                    model.fit(X_subset_scaled, y_subset_scaled, epochs=keras_neural_net_epochs,
+                              batch_size=best_batch_size, verbose=0,
+                              callbacks=[KerasPlotLosses(filepath=keras_figures_subdir, **best_param_grid)])
                     ks_models.save_model(model, model_base_path + '.h5')
                 else: # Model is refit by GridSearchCV.
                     with open(model_pickle_path, "wb") as model_outfile:
@@ -497,12 +532,14 @@ def main():
         collective_assets_model = None
         model_base_path = "{}/model_{}".format(models_dir, window_size)
         model_pickle_path = "{}.pkl".format(model_base_path)
+        keras_figures_subdir = '{}/{}'.format(figures_dir, 'keras')
+
         if not load_models:
             print("Currently training a model for all assets collectively "
                   "with a window size of {} days.".format(window_size))
 
             # Tuples of scores and the corresponding models (along with the best batch sizes for Keras models)
-            score_model_batch_size_tuples = []
+            score_model_batch_size_index_tuples = []
 
             # Create the models.
             for i in range(len(models_to_test)):
@@ -512,30 +549,32 @@ def main():
                 # print("model_to_test, param_set: ", model_to_test, param_set)
                 model = None
                 # In this case, Keras needs to be trained differently to save its models to the filesystem.
-                if model_to_test == model_neural_net:
+                if model_to_test == keras_model_neural_net:
                     model, score, best_batch_size = \
                         keras_reg_grid_search(X, y, build_fn=create_keras_regressor, output_dim=subset_num_currencies,
-                                              param_grid=params_neural_net, epochs=neural_net_epochs, cv=cv,
-                                              scoring=r2_score, scale=True)
+                                              param_grid=params_neural_net, epochs=keras_neural_net_epochs_grd_srch,
+                                              cv=keras_cv, scoring=r2_score, scale=True, verbose=1)
                 else:
                     grid_search = GridSearchCV(model_to_test, param_grid, scoring=make_scorer(r2_score),
-                                               cv=cv, n_jobs=1)#max(1, round(num_cores/2)))
-                    grid_search.fit(X, y)
+                                               cv=cv, n_jobs=num_lgc_prcs_grd_srch)#max(1, round(num_cores/2)))
+                    grid_search.fit(X, y.ravel())
                     model = grid_search.best_estimator_
                     score = grid_search.best_score_
-                score_model_batch_size_tuples.append((score, model, best_batch_size))
+                score_model_batch_size_index_tuples.append((score, model, best_batch_size, i))
             time.sleep(1)  # Wait 1 second for printing from GridSearchCV to complete.
             # Choose the model with the best score.
-            score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
-            best_score = score_model_batch_size_tuples[0][0]
-            collective_assets_model = score_model_batch_size_tuples[0][1]
-            best_batch_size = score_model_batch_size_tuples[0][2]
+            score_model_batch_size_index_tuples.sort(key=lambda tup: tup[0], reverse=True)
+            best_score = score_model_batch_size_index_tuples[0][0]
+            collective_assets_model = score_model_batch_size_index_tuples[0][1]
+            best_batch_size = score_model_batch_size_index_tuples[0][2]
+            best_param_grid = param_grids[score_model_batch_size_index_tuples[0][3]]
             print("Best collective model and score for window size {}: {}"
                   .format(window_size, (collective_assets_model, best_score)))
             # Save the model for this window size after fitting to the whole dataset.
             if type(collective_assets_model) is keras.models.Sequential:
-                collective_assets_model.fit(X_scaled, y_scaled, epochs=neural_net_epochs,
-                                            batch_size=best_batch_size, verbose=0)
+                collective_assets_model.fit(X_scaled, y_scaled, epochs=keras_neural_net_epochs,
+                                            batch_size=best_batch_size, verbose=0,
+                                            callbacks=[KerasPlotLosses(filepath=keras_figures_subdir, **best_param_grid)])
                 ks_models.save_model(collective_assets_model, model_base_path + '.h5')
             else: # Model is refit by GridSearchCV.
                 with open(model_pickle_path, "wb") as model_outfile:
@@ -800,7 +839,6 @@ def main():
 
 
 if __name__ == '__main__':
-    # Remove TensorFlow (Keras' default backend) debugging prints.
-    import os
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+    from machine_learning import keras_init
+    keras_init(gpu_mem_frac=0.6)
     main()
