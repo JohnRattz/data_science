@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
@@ -86,58 +88,117 @@ def get_optimizer_name(optimizer):
 
 class KerasPlotLosses(keras.callbacks.Callback):
     """
+    # TODO: Enable this to plot properly even when other matplotlib figures are created during its lifetime.
     A plotting callback for keras **fit()** functions.
     e.g. **model.fit(..., callbacks=[KerasPlotLosses(nb_epochs)])**
+
+    This callback plots loss over training epochs for Keras models. A notable use is
+    to plot loss for multiple parameter sets during a grid search.
 
     This was derived from a GitHub Gist by user "stared":
     https://gist.github.com/stared/dfb4dfaf6d9a8501cd1cc8b8cb806d2e
     """
-    def __init__(self, optimizer, optimizer_params, nb_epochs, filepath=None):
+    def __init__(self, nb_epochs, dirname=None, title_prefix="", **kwargs):
         """
         TODO: Document this function.
-        :param optimizer: 
-        :param optimizer_params: 
-        :param nb_epochs: 
-        :param filepath: 
+
+        Parameters
+        ----------
+        nb_epochs: int
+            Then number of epochs that will be used in training.
+        dirname: str
+            The filepath to save the resulting figure to.
+        **kwargs: dict
+            Keyword arguments for the construction of the figure (using `matplotlib.pyplot.figure()`).
         """
+        super().__init__()
+        self.fig, self.axes = plt.subplots(**kwargs)
+        # self.axes = plt.gca()
+        self.fig_num = self.fig.number
         self.nb_epochs = nb_epochs
-        optimizer_name = get_optimizer_name(optimizer)
-        # Space-separated list of parameter names and their values.
-        optimizer_param_names = ", ".join(["{}:{}".format(k,v) for k,v in
-                                          optimizer_params.items()])
-        self.title = "{} ({})".format(optimizer_name, optimizer_param_names)
-        self.filename = filepath
-        if filepath is not None:
-            for param, param_val in optimizer_params.items():
-                if isinstance(param_val, (int, float)):
-                    self.filename += '__{}_{}'.format(param, param_val)
-        print("Writing training results to {}".format(self.filename))
+        self.dirname = dirname
+        if dirname is not None:
+            self.filename = dirname
+        self.title_prefix = title_prefix
+        # The title of the figure.
+        self.title = None
+        # Dictionary of optimizer parameters.
+        self.optimizer_params = None
+        # Space-separated list of parameter names and their values. Used to set labels in the figure.
+        self.optimizer_param_names = None
+        # Non-optimizer parameters.
+        self.batch_size = None
+        self.hidden_layer_sizes = None
+        self.dropout_rate = None
+
+    def set_optimizer(self, optimizer):
+        self.title = "{} Keras training loss (Optimizer: {})".format(self.title_prefix, get_optimizer_name(optimizer))
+
+    def set_optimizer_params(self, optimizer_params):
+        self.optimizer_params = optimizer_params
+        # print("self.optimizer_params:", self.optimizer_params)
+        # print("Figure id:", id(self.fig))
+        self.optimizer_param_names = ", ".join(["{}:{}".format(k, v) for k, v in
+                                           optimizer_params.items()])
+
+    ## Setting Non-Optimizer Parameters (for naming the file) ##
+
+    def set_non_optimizer_params(self, non_optimizer_params):
+        """
+        Sets non-optimizer parameter values with a dictionary.
+        """
+        if 'batch_size' in non_optimizer_params:
+            self.set_batch_size(non_optimizer_params['batch_size'])
+        if 'hidden_layer_sizes' in non_optimizer_params:
+            self.set_hidden_layer_sizes(non_optimizer_params['hidden_layer_sizes'])
+        if 'dropout_rate' in non_optimizer_params:
+            self.set_dropout_rate(non_optimizer_params['dropout_rate'])
+
+    def set_batch_size(self, batch_size):
+        self.batch_size = batch_size
+
+    def set_hidden_layer_sizes(self, hidden_layer_sizes):
+        self.hidden_layer_sizes = hidden_layer_sizes
+
+    def set_dropout_rate(self, dropout_rate):
+        self.dropout_rate = dropout_rate
+
+    ## End Setting Non-Optimizer Parameters ##
+
+    def set_filename(self):
+        if (self.dirname is not None) and (self.filename == self.dirname) and \
+                (self.batch_size is not None) and (self.hidden_layer_sizes is not None):
+            self.filename = 'b_{}__h'.format(self.batch_size)
+            for hidden_layer_size in self.hidden_layer_sizes:
+                self.filename += '_{}'.format(hidden_layer_size)
+            if self.dropout_rate is not None:
+                self.filename += '__d_{}'.format(str(self.dropout_rate).replace('.', '_'))
+            self.filename = os.path.join(self.dirname, self.filename)
+
+    def save_figure(self):
+        self.set_filename()
+        plt.figure(self.fig_num) # Reset the active figure to this one.
+        if self.filename is not None:
+            plt.savefig(self.filename)
+
+    ## Methods from keras.callbacks.Callback ##
 
     def on_train_begin(self, logs={}):
+        plt.figure(self.fig_num) # Reset the active figure to this one.
+        self.logs = []
         self.x = []
         self.losses = []
-        plt.close('all')
-        # plt.ion()
-        self.fig = plt.figure()
-        self.logs = []
 
     def on_epoch_end(self, epoch, logs={}):
         self.logs.append(logs)
         self.x.append(epoch)
         self.losses.append(logs.get('loss'))
-        # plt.plot(self.x, self.losses, label="loss")
-        # plt.title(self.title)
-        # plt.legend()
-        # plt.draw()
-        # plt.pause(0.001)
-        # plt.cla()
 
-        if epoch == self.nb_epochs - 1: # Plot the figure after the last epoch.
-            # plt.ioff()
-            plt.plot(self.x, self.losses, label="loss")
+        if epoch == self.nb_epochs - 1: # This is the last epoch, so plot the losses.
+            plt.plot(self.x, self.losses, label=self.optimizer_param_names)
             plt.title(self.title)
             plt.legend()
-            if self.filename is not None:
-                plt.savefig(self.filename)
+
+    ## End Methods from keras.callbacks.Callback ##
 
 ### End Keras ###

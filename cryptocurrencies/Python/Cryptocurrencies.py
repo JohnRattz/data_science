@@ -55,13 +55,26 @@ def main():
     load_source = 'csv'
 
     # Machine Learning Settings
+    # The resolution of data for the analysis.
+    analysis_data_resolution = 'daily'
     # The resolution of data for the machine learning models.
-    # model_data_resolution = 'daily'
     model_data_resolution = 'hourly'
     # The number of logical processors to use during grid search.
     num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
     # Whether or not to use cross validation in Keras grid search.
     keras_use_cv_grd_srch = False
+
+    # Figure Variables and Paths
+    figure_size = (12, 6) # The base figure size.
+    figure_dpi = 300
+    figures_dir = 'figures'
+    if not os.path.exists(figures_dir):
+        os.makedirs(figures_dir)
+
+    # Models Variables and Paths
+    models_dir = 'models'
+    if not os.path.exists(models_dir):
+        os.makedirs(models_dir)
 
     ### End Main Settings ###
 
@@ -69,24 +82,19 @@ def main():
     # bitcoin, bitcoin_cash, bitconnect, dash, ethereum, ethereum_classic, iota, litecoin, \
     # monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_daily_data(source=load_source)
     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
-        load_data(resolution='daily', date_range=('2013-04-28', '2017-12-31'), source=load_source)
-
-    # Figure Variables and Paths
-    figure_dpi = 300
-    figures_dir = 'figures'
-    if not os.path.exists(figures_dir):
-        os.makedirs(figures_dir)
-    currency_figures_subdirs = ['{}/{}'.format(figures_dir, currency_label.replace(' ', '_'))
-                                for currency_label in currencies_labels]
-    # Models Variables and Paths
-    models_dir = 'models'
-    if not os.path.exists(models_dir):
-        os.makedirs(models_dir)
+        load_data(resolution=analysis_data_resolution, date_range=('2013-04-28', '2017-12-31'), source=load_source)
 
     # Directory Structure Creation (Figures)
+    currency_figures_subdirs = ['{}/{}'.format(figures_dir, currency_label.replace(' ', '_'))
+                                for currency_label in currencies_labels]
     for currency_figures_subdir in currency_figures_subdirs:
         if not os.path.exists(currency_figures_subdir):
             os.makedirs(currency_figures_subdir)
+    keras_figures_subdirs = ['{}/{}'.format(currency_figures_subdir, 'keras')
+                                for currency_figures_subdir in currency_figures_subdirs]
+    for keras_figures_subdir in keras_figures_subdirs:
+        if not os.path.exists(keras_figures_subdir):
+            os.makedirs(keras_figures_subdir)
 
     # Value Trends
 
@@ -96,7 +104,7 @@ def main():
         currency_label = currencies_labels[currency_index]
         currency_label_no_spaces = currency_label.replace(' ', '_')
         currency_ticker = currencies_tickers[currency_index]
-        plt.figure(figsize=(12, 6), dpi=figure_dpi)
+        plt.figure(figsize=figure_size, dpi=figure_dpi)
         plt.plot(prices[column])
         plt.xlabel('Date')
         plt.ylabel('Close')
@@ -109,7 +117,7 @@ def main():
     returns = prices.pct_change()
 
     # Value Correlations
-    plt.figure(figsize=(12, 6), dpi=figure_dpi)
+    plt.figure(figsize=figure_size, dpi=figure_dpi)
     # Price Correlations
     price_correlations = prices.corr()
     price_correlations_fig = sns.clustermap(price_correlations, annot=True)
@@ -171,7 +179,7 @@ def main():
     # Standard deviations in returns for 2017 in descending order.
     returns_std_2017 = returns_std_yearly.loc[2017]
     returns_std_2017.sort_values(ascending=False, inplace=True)
-    plt.subplots(figsize=(12, 6))
+    plt.subplots(figsize=figure_size)
     plotting_data = returns_std_2017.to_frame(name='Volatility').reset_index()
     volatility_plot = sns.barplot(x='Name', y='Volatility', data=plotting_data, palette='viridis')
     add_value_text_to_seaborn_barplot(volatility_plot, plotting_data, 'Volatility')
@@ -184,7 +192,7 @@ def main():
     betas.sort_values(ascending=False, inplace=True)
     subset_betas = betas.drop(labels=currencies_labels_and_tickers_to_remove)
     # Create a visualization with the beta values.
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=figure_size)
     plotting_data = subset_betas.to_frame(name='Beta').reset_index()
     beta_plot = sns.barplot(ax=ax, x='Name', y='Beta', data=plotting_data, palette='viridis')
     # Show values in the figure.
@@ -201,7 +209,7 @@ def main():
     CAPM_expected_rates_of_return = CAPM_RoR(subset_betas, returns, market_index, return_risk_free)
     CAPM_expected_rates_of_return.sort_values(ascending=False, inplace=True)
     # Create a visualization with the weights.
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=figure_size)
     plotting_data = CAPM_expected_rates_of_return.to_frame(name='Rate of Return').reset_index()
     CAPM_plot = sns.barplot(ax=ax, x='Name', y='Rate of Return', data=plotting_data, palette='viridis')
     # Show values in the figure.
@@ -215,7 +223,7 @@ def main():
     optimal_weights = find_optimal_portfolio_weights(subset_log_returns, return_risk_free)
     optimal_weights.sort_values(ascending=False, inplace=True)
     # Create a visualization with the weights.
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=figure_size)
     plotting_data = optimal_weights.to_frame(name='Weight').reset_index()
     portfolio_weights_plot = sns.barplot(ax=ax, x='Name', y='Weight', data=plotting_data, palette='viridis')
     # Show values in the figure.
@@ -251,8 +259,15 @@ def main():
     if model_data_resolution == 'daily':
         window_sizes = [7, 14] + list(range(30, 361, 30))  # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
     else:
-        window_sizes = [7, 14] + list(range(30, 361, 30))  # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
-        # With just 14 days, we have 14 * 24 = 336 features per cryptocurrency.
+        window_sizes = 24*7*np.array([1, 2, 4, 8])  # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months.
+        # With just 14 days and 7 cryptocurrencies, we have 14 * 24 * 7 = 2352 features.
+
+    # Directory Structure Creation (Keras Optimization Trend Figures)
+    for keras_figures_subdir in keras_figures_subdirs:
+        for window_size in window_sizes:
+            keras_figures_window_subdir = os.path.join(keras_figures_subdir, 'w_{}'.format(window_size))
+            if not os.path.exists(keras_figures_window_subdir):
+                os.makedirs(keras_figures_window_subdir)
 
     # Load the hourly data for model training if such has been specified.
     if model_data_resolution=='hourly':
@@ -298,13 +313,10 @@ def main():
         # Neural Network models
         # Multilayer Perceptron regressor
         # model_neural_net = MLPRegressor()
-        neural_net_hidden_layer_sizes = []
         # The number of neurons in the hidden layers will be around half the mean of the number of inputs and outputs.
         # hidden_layer_median_size = int(round((num_features + subset_num_currencies)/2))
-        single_hidden_layer_sizes = list(range(200,39,-40))
-        for layer_size in single_hidden_layer_sizes:
-            neural_net_hidden_layer_sizes.append((layer_size, layer_size))  # Two hidden layers
-            neural_net_hidden_layer_sizes.append((layer_size,))  # One hidden layer
+        single_hidden_layer_size = 128
+        neural_net_hidden_layer_sizes = [(single_hidden_layer_size, single_hidden_layer_size // 8)]
         # params_neural_net = {'hidden_layer_sizes': neural_net_hidden_layer_sizes,
         #                      'max_iter': [1000000],
         #                      'beta_1': [0.6, 0.7, 0.8],
@@ -339,32 +351,32 @@ def main():
         #                      'model__output_dim': [subset_num_currencies],
         #                      'model__epochs': [1000],
         #                      'model__batch_size': [100]}
-        hidden_layer_size = 512
-        # three_hidden_layers = (hidden_layer_size, hidden_layer_size // 2, hidden_layer_size // 4)
-        # four_hidden_layers = three_hidden_layers + (hidden_layer_size // 8,)
-        # five_hidden_layers = four_hidden_layers + (hidden_layer_size // 16,)
-        # six_hidden_layers = five_hidden_layers + (hidden_layer_size // 32,)
+        first_hidden_layer_size = 512
+        # three_hidden_layers = (first_hidden_layer_size, first_hidden_layer_size // 2, first_hidden_layer_size // 4)
+        # four_hidden_layers = three_hidden_layers + (first_hidden_layer_size // 8,)
+        # five_hidden_layers = four_hidden_layers + (first_hidden_layer_size // 16,)
+        # six_hidden_layers = five_hidden_layers + (first_hidden_layer_size // 32,)
         # hidden_layer_sizes = [three_hidden_layers, four_hidden_layers, five_hidden_layers, six_hidden_layers]
 
-        # hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 2, hidden_layer_size // 4,
-        #                        hidden_layer_size // 8)]
-        # hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 4, hidden_layer_size // 8,
-        #                        hidden_layer_size // 16)]
-        # hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 4, hidden_layer_size // 8)]
-        hidden_layer_sizes = [(hidden_layer_size, hidden_layer_size // 8)]
+        # hidden_layer_sizes = [(first_hidden_layer_size, first_hidden_layer_size // 2, first_hidden_layer_size // 4,
+        #                        first_hidden_layer_size // 8)]
+        # hidden_layer_sizes = [(first_hidden_layer_size, first_hidden_layer_size // 4, first_hidden_layer_size // 16,
+        #                        first_hidden_layer_size // 64)]
+        hidden_layer_sizes = [(first_hidden_layer_size, first_hidden_layer_size // 4, first_hidden_layer_size // 16)]
+        # hidden_layer_sizes = [(first_hidden_layer_size, first_hidden_layer_size // 8)]
         keras_params_neural_net = \
-            {'batch_size': [4, 8, 12], # A too large batch size results in device OOMs.
+            {'batch_size': [4, 8, 12],  # A too large batch size results in device OOMs.
              'hidden_layer_sizes': hidden_layer_sizes,
              'dropout_rate': [0.1, 0.2],
              'optimizer': [Adam],
              # Parameters for Adam optimizer.
-             'lr': [1e-4, 1e-5, 1e-6],
-             'beta_1': [0.7, 0.8, 0.9],
-             'beta_2': [0.9, 0.95, 0.999]}
+             'lr': [1e-8, 1e-6, 1e-4],
+             'beta_1': [0.7, 0.9],
+             'beta_2': [0.9, 0.999]}
         # The number of epochs to train for in cross validation.
-        keras_neural_net_epochs_grd_srch = 4 # TODO: Make this larger.
+        keras_neural_net_epochs_grd_srch = 10 # TODO: Make this larger. 100?
         # The number of epochs to train for after cross validation.
-        keras_neural_net_epochs = 50 # TODO: Make this larger if needed.
+        keras_neural_net_epochs = 10 # TODO: Make this larger. 100?
         # make_keras_picklable()
         # print(type(KerasRegressor(build_fn=create_keras_model)))
         # from model_saving_loading import save_keras_pipeline, load_keras_pipeline
@@ -445,15 +457,19 @@ def main():
 
         ### Model Training ###
 
+        time_unit = 'days' if model_data_resolution=='daily' else 'hours' # Used for printing the training status.
+
         # Single Asset Model (consider only windows of values for one asset each (disallows learning of correlations))
         single_asset_models = []
         # Build a model for each cryptocurrency.
         for currency_index in range(subset_num_currencies):
             currency_label = subset_currencies_labels[currency_index]
             currency_label_no_spaces = currency_label.replace(' ', '_')
+            # TODO: Replace path string formatting with `os.path.join()`.
             currency_models_subdir = '{}/{}'.format(models_dir, currency_label_no_spaces)
             currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
             keras_figures_subdir = '{}/{}'.format(currency_figures_subdir, 'keras')
+            keras_figures_window_subdir = os.path.join(keras_figures_subdir, 'w_{}'.format(window_size))
 
             # Paths
             model_base_path = "{}/{}_model_{}".format(currency_models_subdir, currency_label_no_spaces, window_size)
@@ -473,12 +489,11 @@ def main():
 
             if not load_models:
                 currency_label_and_ticker = subset_currencies_labels_and_tickers[currency_index]
-                print("Currently training a model for {} with a window size of {} days."
-                    .format(currency_label_and_ticker, window_size))
+                print("Currently training a model for {} with a window size of {} {}."
+                    .format(currency_label_and_ticker, window_size, time_unit))
 
-                # Tuples of scores and the corresponding models,
-                # best batch sizes for Keras models, and model index.
-                score_model_batch_size_index_tuples = []
+                # Tuples of scores, the corresponding models, and the best batch sizes for Keras models.
+                score_model_batch_size_tuples = []
 
                 # Create the models.
                 for i in range(len(models_to_test)):
@@ -492,29 +507,29 @@ def main():
                         model, score, best_batch_size = \
                             keras_reg_grid_search(X_subset, y_subset, build_fn=create_keras_regressor, output_dim=1,
                                                   param_grid=param_grid, epochs=keras_neural_net_epochs_grd_srch,
-                                                  cv=keras_cv, scoring=r2_score, scale=True,
-                                                  verbose=1)
+                                                  cv=keras_cv, scoring=r2_score, scale=True, verbose=1,
+                                                  plot_losses=True, plotting_dir=keras_figures_window_subdir,
+                                                  figure_title_prefix='{} (window size {})'.format(currency_label, window_size),
+                                                  figure_kwargs={'figsize':figure_size, 'dpi':figure_dpi})
                     else:
                         grid_search = GridSearchCV(model_to_test, param_grid, scoring=make_scorer(r2_score),
                                                    cv=cv, n_jobs=num_lgc_prcs_grd_srch)
-                        grid_search.fit(X_subset, y_subset.ravel())
+                        grid_search.fit(X_subset_scaled, y_subset_scaled.ravel())
                         model = grid_search.best_estimator_
                         score = grid_search.best_score_
-                    score_model_batch_size_index_tuples.append((score, model, best_batch_size, i))
+                    score_model_batch_size_tuples.append((score, model, best_batch_size))
                 time.sleep(1)  # Wait 1 second for printing from GridSearchCV to complete.
                 # Choose the model with the best score.
-                score_model_batch_size_index_tuples.sort(key=lambda tup: tup[0], reverse=True)
-                best_score = score_model_batch_size_index_tuples[0][0]
-                model = score_model_batch_size_index_tuples[0][1]
-                best_batch_size = score_model_batch_size_index_tuples[0][2]
-                best_param_grid = param_grids[score_model_batch_size_index_tuples[0][3]]
+                score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
+                best_score = score_model_batch_size_tuples[0][0]
+                model = score_model_batch_size_tuples[0][1]
+                best_batch_size = score_model_batch_size_tuples[0][2]
                 print("Best model and score for asset {} and window size {}: {}"
                       .format(currency_label_and_ticker, window_size, (model, best_score)))
                 # Save the model for this window size after fitting to the whole dataset.
                 if type(model) is keras.models.Sequential:
                     model.fit(X_subset_scaled, y_subset_scaled, epochs=keras_neural_net_epochs,
-                              batch_size=best_batch_size, verbose=0,
-                              callbacks=[KerasPlotLosses(filepath=keras_figures_subdir, **best_param_grid)])
+                              batch_size=best_batch_size, verbose=0)
                     ks_models.save_model(model, model_base_path + '.h5')
                 else: # Model is refit by GridSearchCV.
                     with open(model_pickle_path, "wb") as model_outfile:
@@ -536,10 +551,10 @@ def main():
 
         if not load_models:
             print("Currently training a model for all assets collectively "
-                  "with a window size of {} days.".format(window_size))
+                  "with a window size of {} {}.".format(window_size, time_unit))
 
             # Tuples of scores and the corresponding models (along with the best batch sizes for Keras models)
-            score_model_batch_size_index_tuples = []
+            score_model_batch_size_tuples = []
 
             # Create the models.
             for i in range(len(models_to_test)):
@@ -553,28 +568,30 @@ def main():
                     model, score, best_batch_size = \
                         keras_reg_grid_search(X, y, build_fn=create_keras_regressor, output_dim=subset_num_currencies,
                                               param_grid=params_neural_net, epochs=keras_neural_net_epochs_grd_srch,
-                                              cv=keras_cv, scoring=r2_score, scale=True, verbose=1)
+                                              cv=keras_cv, scoring=r2_score, scale=True, verbose=1,
+                                              plot_losses=True, plotting_dir=keras_figures_subdir,
+                                              figure_title_prefix='Collective (window size {})'.format(window_size),
+                                              figure_kwargs={'figsize': figure_size, 'dpi': figure_dpi})
                 else:
                     grid_search = GridSearchCV(model_to_test, param_grid, scoring=make_scorer(r2_score),
                                                cv=cv, n_jobs=num_lgc_prcs_grd_srch)#max(1, round(num_cores/2)))
-                    grid_search.fit(X, y.ravel())
+                    grid_search.fit(X_scaled, y_scaled.ravel())
                     model = grid_search.best_estimator_
                     score = grid_search.best_score_
-                score_model_batch_size_index_tuples.append((score, model, best_batch_size, i))
+                score_model_batch_size_tuples.append((score, model, best_batch_size, i))
             time.sleep(1)  # Wait 1 second for printing from GridSearchCV to complete.
             # Choose the model with the best score.
-            score_model_batch_size_index_tuples.sort(key=lambda tup: tup[0], reverse=True)
-            best_score = score_model_batch_size_index_tuples[0][0]
-            collective_assets_model = score_model_batch_size_index_tuples[0][1]
-            best_batch_size = score_model_batch_size_index_tuples[0][2]
-            best_param_grid = param_grids[score_model_batch_size_index_tuples[0][3]]
+            score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
+            best_score = score_model_batch_size_tuples[0][0]
+            collective_assets_model = score_model_batch_size_tuples[0][1]
+            best_batch_size = score_model_batch_size_tuples[0][2]
+            best_param_grid = param_grids[score_model_batch_size_tuples[0][3]]
             print("Best collective model and score for window size {}: {}"
                   .format(window_size, (collective_assets_model, best_score)))
             # Save the model for this window size after fitting to the whole dataset.
             if type(collective_assets_model) is keras.models.Sequential:
                 collective_assets_model.fit(X_scaled, y_scaled, epochs=keras_neural_net_epochs,
-                                            batch_size=best_batch_size, verbose=0,
-                                            callbacks=[KerasPlotLosses(filepath=keras_figures_subdir, **best_param_grid)])
+                                            batch_size=best_batch_size, verbose=0)
                 ks_models.save_model(collective_assets_model, model_base_path + '.h5')
             else: # Model is refit by GridSearchCV.
                 with open(model_pickle_path, "wb") as model_outfile:
@@ -840,5 +857,5 @@ def main():
 
 if __name__ == '__main__':
     from machine_learning import keras_init
-    keras_init(gpu_mem_frac=0.6)
+    keras_init(gpu_mem_frac=0.5)
     main()
