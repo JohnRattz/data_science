@@ -25,18 +25,24 @@ import matplotlib.pyplot as plt
 
 ### Keras ###
 
-def keras_init(gpu_mem_frac=0.3):
+def keras_init(tf_min_log_level='3', gpu_mem_frac=0.3):
     """
-    Configures keras at the beginning of script.
+    Configures keras and its TensorFlow backend. Usually placed at the beginning of a script.
 
     Parameters
     ----------
+    tf_min_log_level: str
+        A string representation of an integer. One of ['1', '2', '3'].
+        Higher numbers for this parameter allow fewer prints from the TensorFlow backend.
     gpu_mem_frac: float
-        The fraction of GPU memory allocated to the TensorFlow backend.
+        The fraction of GPU on-board memory allocated to the TensorFlow backend.
+        Note that models that do not use TensorFlow components that allow memory swapping between GPU and system memory,
+        such as those used by Keras layers like `Sequential`, may cause OOM errors preventing models from being trained
+        and potentially crashing the Python interpreter with an uncaught and otherwise difficult-to-handle exception.
     """
     # Remove TensorFlow (Keras' default backend) debugging prints.
     import os
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = tf_min_log_level
 
     # Configure the TensorFlow backend.
     config = tf.ConfigProto()
@@ -137,8 +143,10 @@ def extract_non_optimizer_params(optimizer, param_set):
     return non_optimizer_params
 
 def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=None, scoring=r2_score, scale=True,
-                          verbose=0, plot_losses=False, plotting_dir=None, figure_title_prefix="", figure_kwargs={}):
+                          verbose=0, plot_losses=False, plotting_dir=None, figure_title_prefix="", figure_kwargs={},
+                          plotting_kwargs={}):
     """
+    TODO: Why use `build_fn` when there is only one sensible build function to call?
     TODO: Document this function (X, y, build_fn, cv).
 
     Parameters
@@ -155,7 +163,7 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
     scale: bool
         Whether or not to standard scale the data before training.
     verbose: int
-        0, 1, or 2. 0 = silent, 1 = updates on grid search (# param sets completed),
+        Can be 0, 1, 2, or 3. 0 = silent, 1 = updates on grid search (# param sets completed),
         2 = Keras verbosity 1 (progress bar), 3 = Keras verbosity 2 (one line per epoch).
     plot_losses: boolean
         Whether or not to plot losses for all param sets trained on in one figure.
@@ -166,7 +174,13 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
         A string to prefix to the figure title.
     figure_kwargs: dict
         A ``dict`` of keyword arguments for construction of a matplotlib Figure for the loss plot.
+    plotting_kwargs: dict
+        A ``dict`` of keyword arguments for the plotting of the loss plot (`matplotlib.pyplot.plot()`).
     """
+    # TODO: Remove these lines when done debugging memory consumption.
+    # import os
+    # import psutil
+    # process = psutil.Process(os.getpid())
     # Verbosity for Keras fit().
     keras_verbose = max(0, verbose - 1)
     loss_plotters = {} if plot_losses else None # Dictionary mapping non-optimizer parameter values to loss plotters.
@@ -183,18 +197,20 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
         # print("non_optimizer_params:", non_optimizer_params)
         non_optimizer_param_vals = tuple(non_optimizer_params.values())
         # print("non_optimizer_param_vals:", non_optimizer_param_vals)
-        # Select the appropriate loss_plotter or create if needed.
+        # Select the appropriate loss_plotter or create one if needed.
         loss_plotter = loss_plotters.get(non_optimizer_param_vals, None) if plot_losses else None
         if plot_losses and (loss_plotter is None):
             loss_plotter = loss_plotters[non_optimizer_param_vals] = \
-                KerasPlotLosses(epochs, plotting_dir, figure_title_prefix, **figure_kwargs) if plot_losses else None
+                KerasPlotLosses(epochs, plotting_dir, figure_title_prefix, figure_kwargs, plotting_kwargs) if plot_losses else None
         # print("id(loss_plotter):", id(loss_plotter))
         # Build the model.
         model_building_param_set = param_set.copy()
         model_building_param_set.pop('batch_size', None)
         model_building_param_set.pop('hidden_layer_sizes', None)
+        # print("keras_reg_grid_search(), before model build! {} MB".format(process.memory_info().rss / 1024 / 1024))
         model = build_fn(input_dim=input_dim, hidden_layer_sizes=hidden_layer_sizes,
                          output_dim=output_dim, optimizer_params=optimizer_params, **model_building_param_set)
+        # print("keras_reg_grid_search(), after model build! {} MB".format(process.memory_info().rss / 1024 / 1024))
         score = 0
         n_splits = 0
         if cv is not None:
@@ -243,6 +259,7 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
     best_model = None
     best_score = -float('inf')
     best_batch_size = None
+    best_param_set = None
     # Fraction of parameter sets trained with
     frac_param_sets_cmplt = 0.
     # Fraction of parameter sets trained with as of the last print
@@ -258,6 +275,7 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
             best_model = model
             best_score = score
             best_batch_size = batch_size
+            best_param_set = param_set
         if verbose >= 1:
             frac_param_sets_cmplt += 1.0 / len(param_sets)
             if frac_param_sets_cmplt >= frac_param_sets_cmplt_lst_prt + frac_param_sets_cmplt_min_diff_prt:
@@ -270,6 +288,13 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
     if plot_losses:
         for loss_plotter in loss_plotters.values():
             loss_plotter.save_figure()
-    return best_model, best_score, best_batch_size
+    return best_model, best_score, best_batch_size, best_param_set
+
+def keras_convert_optimizer_obj_to_name(optimizer):
+    """
+    Returns a simple string name for a Keras optimizer object.
+    """
+    if optimizer is optimizers.Adam:
+        return 'Adam'
 
 ### End Keras ###

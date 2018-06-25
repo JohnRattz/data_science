@@ -1,9 +1,19 @@
-"""
-The time resolution of the data for the models to train on. Either 'daily' or 'hourly'.
-See `ETL.py` for more information.
-"""
+# TODO: Remove memory profiling when done debugging memory leak.
+from memory_profiler import profile
+@profile
 def main():
+    ### Environment and Pre-load Library Settings###
+    from utilities.Python.machine_learning import keras_init
+    # `gpu_mem_frac` may need to change for your system.
+    # For reference, I run this script with a GTX 1080Ti, which has 11GB of memory.
+    keras_init(gpu_mem_frac=0.5)
+
     ### Imports ###
+
+    # TODO: Remove these lines when done debugging memory consumption.
+    import os
+    import psutil
+    process = psutil.Process(os.getpid())
 
     # Import miscellaneous global variables.
     import sys
@@ -14,12 +24,13 @@ def main():
     import warnings
     import time
 
+    import math
     import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
     warnings.simplefilter('ignore')
     import seaborn as sns
-    from plotting import KerasPlotLosses
+    from utilities.Python.plotting import KerasPlotLosses
 
     from ETL import load_data
 
@@ -35,13 +46,13 @@ def main():
     from sklearn.metrics import make_scorer, r2_score
     import keras
     import keras.models as ks_models
-    from machine_learning import create_keras_regressor, keras_reg_grid_search
+    from machine_learning import create_keras_regressor, keras_reg_grid_search, keras_convert_optimizer_obj_to_name
 
     # Custom utility functions
-    sys.path.insert(0, '../../' + utilities_dir)
+    # sys.path.insert(0, '../../' + utilities_dir)
     from analysis import find_optimal_portfolio_weights, calc_CAPM_betas, CAPM_RoR, run_monte_carlo_financial_simulation
     from conversions import pandas_dt_to_str
-    from plotting import add_value_text_to_seaborn_barplot, monte_carlo_plot_confidence_band
+    from utilities.Python.plotting import add_value_text_to_seaborn_barplot, monte_carlo_plot_confidence_band
 
     # Optimizers
     from keras.optimizers import Adam
@@ -63,6 +74,8 @@ def main():
     num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
     # Whether or not to use cross validation in Keras grid search.
     keras_use_cv_grd_srch = False
+    # The level of verbosity
+    keras_grd_srch_verbose = 0
 
     # Figure Variables and Paths
     figure_size = (12, 6) # The base figure size.
@@ -90,8 +103,12 @@ def main():
     for currency_figures_subdir in currency_figures_subdirs:
         if not os.path.exists(currency_figures_subdir):
             os.makedirs(currency_figures_subdir)
+    # Keras Figures
+    keras_figures_dir = '{}/{}'.format(figures_dir, 'keras')
+    if not os.path.exists(keras_figures_dir):
+        os.makedirs(keras_figures_dir)
     keras_figures_subdirs = ['{}/{}'.format(currency_figures_subdir, 'keras')
-                                for currency_figures_subdir in currency_figures_subdirs]
+                             for currency_figures_subdir in currency_figures_subdirs]
     for keras_figures_subdir in keras_figures_subdirs:
         if not os.path.exists(keras_figures_subdir):
             os.makedirs(keras_figures_subdir)
@@ -259,7 +276,7 @@ def main():
     if model_data_resolution == 'daily':
         window_sizes = [7, 14] + list(range(30, 361, 30))  # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
     else:
-        window_sizes = 24*7*np.array([1, 2, 4, 8])  # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months.
+        window_sizes = 24*7*np.array([1,2,3])#np.array([1, 2, 4, 8])  # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months. # TODO: Restore window_sizes.
         # With just 14 days and 7 cryptocurrencies, we have 14 * 24 * 7 = 2352 features.
 
     # Directory Structure Creation (Keras Optimization Trend Figures)
@@ -286,6 +303,10 @@ def main():
         subset_prices_nonan = subset_prices.dropna()
         dates = subset_prices_nonan.index.values
 
+    # Used to record and analyze (via a pandas DataFrame) the number of occurrences of each parameter set.
+    keras_param_sets_occurrences = {}
+    # Column name in resulting DataFrame that denotes what asset a row pertains to ('all' for collective asset models).
+    asset_col_str = 'asset'
     ### Main Loop ###
     for window_size in window_sizes:
         print("Predicting prices with a window of {} days of preceding currency values.".format(window_size))
@@ -317,7 +338,7 @@ def main():
         # hidden_layer_median_size = int(round((num_features + subset_num_currencies)/2))
         single_hidden_layer_size = 128
         neural_net_hidden_layer_sizes = [(single_hidden_layer_size, single_hidden_layer_size // 8)]
-        # params_neural_net = {'hidden_layer_sizes': neural_net_hidden_layer_sizes,
+        # params_neural_net = {'hidden_layer_sizes_collective': neural_net_hidden_layer_sizes,
         #                      'max_iter': [1000000],
         #                      'beta_1': [0.6, 0.7, 0.8],
         #                      'beta_2': [0.9, 0.95, 0.999],
@@ -351,32 +372,40 @@ def main():
         #                      'model__output_dim': [subset_num_currencies],
         #                      'model__epochs': [1000],
         #                      'model__batch_size': [100]}
-        first_hidden_layer_size = 512
-        # three_hidden_layers = (first_hidden_layer_size, first_hidden_layer_size // 2, first_hidden_layer_size // 4)
-        # four_hidden_layers = three_hidden_layers + (first_hidden_layer_size // 8,)
-        # five_hidden_layers = four_hidden_layers + (first_hidden_layer_size // 16,)
-        # six_hidden_layers = five_hidden_layers + (first_hidden_layer_size // 32,)
-        # hidden_layer_sizes = [three_hidden_layers, four_hidden_layers, five_hidden_layers, six_hidden_layers]
-
-        # hidden_layer_sizes = [(first_hidden_layer_size, first_hidden_layer_size // 2, first_hidden_layer_size // 4,
-        #                        first_hidden_layer_size // 8)]
-        # hidden_layer_sizes = [(first_hidden_layer_size, first_hidden_layer_size // 4, first_hidden_layer_size // 16,
-        #                        first_hidden_layer_size // 64)]
-        hidden_layer_sizes = [(first_hidden_layer_size, first_hidden_layer_size // 4, first_hidden_layer_size // 16)]
-        # hidden_layer_sizes = [(first_hidden_layer_size, first_hidden_layer_size // 8)]
+        first_hidden_layer_size_single_asset = 256
+        first_hidden_layer_size_collective = 512
+        # three_hidden_layers = (first_hidden_layer_size_collective, first_hidden_layer_size_collective // 2,
+        #                        first_hidden_layer_size_collective // 4)
+        # four_hidden_layers = three_hidden_layers + (first_hidden_layer_size_collective // 8,)
+        # five_hidden_layers = four_hidden_layers + (first_hidden_layer_size_collective // 16,)
+        # six_hidden_layers = five_hidden_layers + (first_hidden_layer_size_collective // 32,)
+        # hidden_layer_sizes_collective = [three_hidden_layers, four_hidden_layers, five_hidden_layers, six_hidden_layers]
+        #
+        # hidden_layer_sizes_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 2,
+        #                        first_hidden_layer_size_collective // 4,
+        #                        first_hidden_layer_size_collective // 8)]
+        # hidden_layer_sizes_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 4,
+        #                        first_hidden_layer_size_collective // 16,
+        #                        first_hidden_layer_size_collective // 64)]
+        hidden_layer_sizes_single_asset = [(first_hidden_layer_size_single_asset, first_hidden_layer_size_single_asset // 4,
+                                            first_hidden_layer_size_single_asset // 16)]
+        hidden_layer_sizes_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 4,
+                                          first_hidden_layer_size_collective // 16)]
+        # hidden_layer_sizes_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 8)]
         keras_params_neural_net = \
             {'batch_size': [4, 8, 12],  # A too large batch size results in device OOMs.
-             'hidden_layer_sizes': hidden_layer_sizes,
+             'hidden_layer_sizes': None,
              'dropout_rate': [0.1, 0.2],
              'optimizer': [Adam],
              # Parameters for Adam optimizer.
-             'lr': [1e-8, 1e-6, 1e-4],
-             'beta_1': [0.7, 0.9],
-             'beta_2': [0.9, 0.999]}
+             'lr': [1e-4],#[1e-8, 1e-6, 1e-4],
+             'beta_1': [0.7],#, 0.9],
+             'beta_2': [0.9]}#, 0.999]}
+        keras_param_names = list(keras_params_neural_net.keys())
         # The number of epochs to train for in cross validation.
-        keras_neural_net_epochs_grd_srch = 10 # TODO: Make this larger. 100?
+        keras_neural_net_epochs_grd_srch = 2 # TODO: Make this larger. 100?
         # The number of epochs to train for after cross validation.
-        keras_neural_net_epochs = 10 # TODO: Make this larger. 100?
+        keras_neural_net_epochs = 1 # TODO: Make this larger. 100?
         # make_keras_picklable()
         # print(type(KerasRegressor(build_fn=create_keras_model)))
         # from model_saving_loading import save_keras_pipeline, load_keras_pipeline
@@ -450,9 +479,8 @@ def main():
         # param_sets = [params_svr]  # SVR
 
         load_models = False  # Whether or not to load models that have already been created by this program.
-        # Train models on different amounts of division of the data into training and test sets.
         # Specify the cross validation method.
-        cv = TimeSeriesSplit(n_splits=5)
+        cv = TimeSeriesSplit(n_splits=4)
         keras_cv = cv if keras_use_cv_grd_srch else None
 
         ### Model Training ###
@@ -495,22 +523,30 @@ def main():
                 # Tuples of scores, the corresponding models, and the best batch sizes for Keras models.
                 score_model_batch_size_tuples = []
 
-                # Create the models.
+                # Create the single asset models.
                 for i in range(len(models_to_test)):
                     model_to_test = models_to_test[i]
                     param_grid = param_grids[i]
+                    param_grid['hidden_layer_sizes'] = hidden_layer_sizes_single_asset
                     best_batch_size = None
                     # print("model_to_test, param_set: ", model_to_test, param_set)
-                    model = None
                     # In this case, Keras needs to be trained differently to save its models to the filesystem.
                     if model_to_test == keras_model_neural_net:
-                        model, score, best_batch_size = \
+                        print("Before keras_reg_grid_search()! {} MB".format(process.memory_info().rss / 1024 / 1024))
+                        model, score, best_batch_size, best_param_set = \
                             keras_reg_grid_search(X_subset, y_subset, build_fn=create_keras_regressor, output_dim=1,
                                                   param_grid=param_grid, epochs=keras_neural_net_epochs_grd_srch,
-                                                  cv=keras_cv, scoring=r2_score, scale=True, verbose=1,
+                                                  cv=keras_cv, scoring=r2_score, scale=True, verbose=keras_grd_srch_verbose,
                                                   plot_losses=True, plotting_dir=keras_figures_window_subdir,
                                                   figure_title_prefix='{} (window size {})'.format(currency_label, window_size),
                                                   figure_kwargs={'figsize':figure_size, 'dpi':figure_dpi})
+                        print("After keras_reg_grid_search()! {} MB".format(process.memory_info().rss / 1024 / 1024))
+                        best_param_set['optimizer'] = keras_convert_optimizer_obj_to_name(best_param_set['optimizer'])
+                        param_vals_tup = tuple(best_param_set.values()) + (currency_label,)
+                        # print("param_vals_tup:", param_vals_tup)
+                        num_occurrences = keras_param_sets_occurrences.setdefault(param_vals_tup, 0)
+                        keras_param_sets_occurrences[param_vals_tup] = num_occurrences + 1
+                        # print("keras_param_sets_occurrences:", keras_param_sets_occurrences)
                     else:
                         grid_search = GridSearchCV(model_to_test, param_grid, scoring=make_scorer(r2_score),
                                                    cv=cv, n_jobs=num_lgc_prcs_grd_srch)
@@ -524,8 +560,11 @@ def main():
                 best_score = score_model_batch_size_tuples[0][0]
                 model = score_model_batch_size_tuples[0][1]
                 best_batch_size = score_model_batch_size_tuples[0][2]
-                print("Best model and score for asset {} and window size {}: {}"
-                      .format(currency_label_and_ticker, window_size, (model, best_score)))
+                oth_param_to_disp_str = " and score" if best_batch_size is None else ", score, and batch size"
+                param_vals_to_disp = (model, best_score) if best_batch_size is None else \
+                                     (model, best_score, best_batch_size)
+                print("Best model{} for asset {} and window size {}: {}"
+                      .format(oth_param_to_disp_str, currency_label_and_ticker, window_size, param_vals_to_disp))
                 # Save the model for this window size after fitting to the whole dataset.
                 if type(model) is keras.models.Sequential:
                     model.fit(X_subset_scaled, y_subset_scaled, epochs=keras_neural_net_epochs,
@@ -547,7 +586,6 @@ def main():
         collective_assets_model = None
         model_base_path = "{}/model_{}".format(models_dir, window_size)
         model_pickle_path = "{}.pkl".format(model_base_path)
-        keras_figures_subdir = '{}/{}'.format(figures_dir, 'keras')
 
         if not load_models:
             print("Currently training a model for all assets collectively "
@@ -560,34 +598,44 @@ def main():
             for i in range(len(models_to_test)):
                 model_to_test = models_to_test[i]
                 param_grid = param_grids[i]
+                param_grid['hidden_layer_sizes'] = hidden_layer_sizes_collective
                 best_batch_size = None
                 # print("model_to_test, param_set: ", model_to_test, param_set)
-                model = None
                 # In this case, Keras needs to be trained differently to save its models to the filesystem.
                 if model_to_test == keras_model_neural_net:
-                    model, score, best_batch_size = \
+                    print("Before keras_reg_grid_search()! {} MB".format(process.memory_info().rss / 1024 / 1024))
+                    model, score, best_batch_size, best_param_set = \
                         keras_reg_grid_search(X, y, build_fn=create_keras_regressor, output_dim=subset_num_currencies,
-                                              param_grid=params_neural_net, epochs=keras_neural_net_epochs_grd_srch,
-                                              cv=keras_cv, scoring=r2_score, scale=True, verbose=1,
-                                              plot_losses=True, plotting_dir=keras_figures_subdir,
+                                              param_grid=param_grid, epochs=keras_neural_net_epochs_grd_srch,
+                                              cv=keras_cv, scoring=r2_score, scale=True, verbose=keras_grd_srch_verbose,
+                                              plot_losses=True, plotting_dir=keras_figures_dir,
                                               figure_title_prefix='Collective (window size {})'.format(window_size),
                                               figure_kwargs={'figsize': figure_size, 'dpi': figure_dpi})
+                    print("After keras_reg_grid_search()! {} MB".format(process.memory_info().rss / 1024 / 1024))
+                    best_param_set['optimizer'] = keras_convert_optimizer_obj_to_name(best_param_set['optimizer'])
+                    param_vals_tup = tuple(best_param_set.values()) + ('all',)
+                    # print("param_vals_tup:", param_vals_tup)
+                    num_occurrences = keras_param_sets_occurrences.setdefault(param_vals_tup, 0)
+                    keras_param_sets_occurrences[param_vals_tup] = num_occurrences + 1
+                    # print("keras_param_sets_occurrences:", keras_param_sets_occurrences)
                 else:
                     grid_search = GridSearchCV(model_to_test, param_grid, scoring=make_scorer(r2_score),
                                                cv=cv, n_jobs=num_lgc_prcs_grd_srch)#max(1, round(num_cores/2)))
                     grid_search.fit(X_scaled, y_scaled.ravel())
                     model = grid_search.best_estimator_
                     score = grid_search.best_score_
-                score_model_batch_size_tuples.append((score, model, best_batch_size, i))
+                score_model_batch_size_tuples.append((score, model, best_batch_size))
             time.sleep(1)  # Wait 1 second for printing from GridSearchCV to complete.
             # Choose the model with the best score.
             score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
             best_score = score_model_batch_size_tuples[0][0]
             collective_assets_model = score_model_batch_size_tuples[0][1]
             best_batch_size = score_model_batch_size_tuples[0][2]
-            best_param_grid = param_grids[score_model_batch_size_tuples[0][3]]
-            print("Best collective model and score for window size {}: {}"
-                  .format(window_size, (collective_assets_model, best_score)))
+            oth_param_to_disp_str = " and score" if best_batch_size is None else ", score, and batch size"
+            param_vals_to_disp = (collective_assets_model, best_score) if best_batch_size is None else \
+                                 (collective_assets_model, best_score, best_batch_size)
+            print("Best collective model{} for window size {}: {}"
+                  .format(oth_param_to_disp_str, window_size, param_vals_to_disp))
             # Save the model for this window size after fitting to the whole dataset.
             if type(collective_assets_model) is keras.models.Sequential:
                 collective_assets_model.fit(X_scaled, y_scaled, epochs=keras_neural_net_epochs,
@@ -605,6 +653,32 @@ def main():
                     collective_assets_model = pickle.load(model_infile)
 
         # Validation and Visualization
+
+        # Visualize how often various parameter sets produced the best model.
+        keras_unique_param_sets_tuples = list(keras_param_sets_occurrences.keys())
+        index = pd.MultiIndex.from_tuples(keras_unique_param_sets_tuples, names=keras_param_names+[asset_col_str])
+        # print("index:", index)
+        keras_param_sets_occurrences_series = pd.Series(list(keras_param_sets_occurrences.values()), index=index)
+        print("keras_param_sets_occurrences_series:", keras_param_sets_occurrences_series)
+        num_occurrences_str = 'num_occurrences'
+        keras_param_sets_occurrences_frame = keras_param_sets_occurrences_series.to_frame(num_occurrences_str)
+        print("keras_param_sets_occurrences_frame:", keras_param_sets_occurrences_frame)
+        keras_param_sets_occurrences_frame.reset_index(inplace=True)
+        for ind_col_name in keras_param_sets_occurrences_frame.columns:
+            if ind_col_name == num_occurrences_str:
+                continue
+            agg_data = (keras_param_sets_occurrences_frame
+                .groupby(ind_col_name)[num_occurrences_str]).sum()
+            print(agg_data, agg_data.index)
+            agg_data.plot(x=ind_col_name, y=num_occurrences_str, kind='bar')
+            plt.xticks(rotation=15, fontsize=6)
+            # Format y-axis labels as integers.
+            y = np.unique(agg_data.values)
+            # Credit to https://stackoverflow.com/a/12051323/5449970 for this little code snippet.
+            plt.yticks(list(range(int(math.floor(min(y))), int(math.ceil(max(y)) + 1))))
+            plt.tight_layout()
+            plt.show()
+        exit()
 
         # Single Asset Model Predictions
         def single_asset_models_predict(X):
@@ -856,6 +930,4 @@ def main():
 
 
 if __name__ == '__main__':
-    from machine_learning import keras_init
-    keras_init(gpu_mem_frac=0.5)
     main()

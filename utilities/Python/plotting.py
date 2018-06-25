@@ -98,7 +98,7 @@ class KerasPlotLosses(keras.callbacks.Callback):
     This was derived from a GitHub Gist by user "stared":
     https://gist.github.com/stared/dfb4dfaf6d9a8501cd1cc8b8cb806d2e
     """
-    def __init__(self, nb_epochs, dirname=None, title_prefix="", **kwargs):
+    def __init__(self, nb_epochs, dirname=None, title_prefix="", figure_kwargs={}, plotting_kwargs={}):
         """
         TODO: Document this function.
 
@@ -108,11 +108,14 @@ class KerasPlotLosses(keras.callbacks.Callback):
             Then number of epochs that will be used in training.
         dirname: str
             The filepath to save the resulting figure to.
-        **kwargs: dict
+        figure_kwargs: dict
             Keyword arguments for the construction of the figure (using `matplotlib.pyplot.figure()`).
+        plotting_kwargs: dict
+            Keyword arguments for the plot (`matplotlib.pyplot.plot()`).
         """
         super().__init__()
-        self.fig, self.axes = plt.subplots(**kwargs)
+        self.fig, self.axes = plt.subplots(**figure_kwargs)
+        self.plotting_kwargs = plotting_kwargs
         # self.axes = plt.gca()
         self.fig_num = self.fig.number
         self.nb_epochs = nb_epochs
@@ -130,6 +133,8 @@ class KerasPlotLosses(keras.callbacks.Callback):
         self.batch_size = None
         self.hidden_layer_sizes = None
         self.dropout_rate = None
+        # Miscellaneous
+        self.num_lines = 0 # The number of loss lines to plot.
 
     def set_optimizer(self, optimizer):
         self.title = "{} Keras training loss (Optimizer: {})".format(self.title_prefix, get_optimizer_name(optimizer))
@@ -184,6 +189,7 @@ class KerasPlotLosses(keras.callbacks.Callback):
     ## Methods from keras.callbacks.Callback ##
 
     def on_train_begin(self, logs={}):
+        self.num_lines += 1
         plt.figure(self.fig_num) # Reset the active figure to this one.
         self.logs = []
         self.x = []
@@ -195,7 +201,11 @@ class KerasPlotLosses(keras.callbacks.Callback):
         self.losses.append(logs.get('loss'))
 
         if epoch == self.nb_epochs - 1: # This is the last epoch, so plot the losses.
-            plt.plot(self.x, self.losses, label=self.optimizer_param_names)
+            linewidth = self.plotting_kwargs.pop('linewidth', max(min(1.0, 6.0/self.num_lines), 2.0))
+            # TODO: Make `first_epoch_to_plot` changeable.
+            first_epoch_to_plot = 20
+            plotting_x = self.x[first_epoch_to_plot:] if self.nb_epochs >= first_epoch_to_plot else self.x
+            plt.plot(plotting_x, self.losses, label=self.optimizer_param_names, linewidth=linewidth, **self.plotting_kwargs)
             plt.title(self.title)
             plt.legend()
 
