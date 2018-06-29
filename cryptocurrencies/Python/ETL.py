@@ -232,50 +232,81 @@ if __name__ == '__main__':
 #     print("currencies_tickers: ", currencies_tickers)
 #     print("currencies_labels_and_tickers: ", currencies_labels_and_tickers)
 #     print("prices.columns: ", prices.columns)
-    import pandas as pd
-
-    index_headers = ['batch_size', 'hidden_layer_sizes', 'dropout_rate',
-                     # Parameters for Adam optimizer.
-                     'lr', 'beta_1', 'beta_2']
-
-    param_sets = [{'batch_size': 4, 'hidden_layer_sizes': str((512, 128, 32)), 'dropout_rate': 0.1,
-                   'lr': 1e-4, 'beta_1': 0.7, 'beta_2': 0.8},
-                  {'batch_size': 4, 'hidden_layer_sizes': str((512, 128, 32)), 'dropout_rate': 0.1,
-                   'lr': 1e-4, 'beta_1': 0.7, 'beta_2': 0.9},
-                  {'batch_size': 4, 'hidden_layer_sizes': str((512, 128, 32)), 'dropout_rate': 0.1,
-                   'lr': 1e-4, 'beta_1': 0.7, 'beta_2': 0.9}]
-
-    keras_param_sets_occurrences = {}
-
-    for param_set in param_sets: # Pseudo-simulating the training loop.
-        param_vals_tup = tuple(param_set.values())
-        num_occurrences = keras_param_sets_occurrences.setdefault(param_vals_tup, 0)
-        keras_param_sets_occurrences[param_vals_tup] = num_occurrences + 1
-    # print("keras_param_sets_occurrences:", keras_param_sets_occurrences)
-    keras_unique_param_sets_tuples = list(keras_param_sets_occurrences.keys())
-    index = pd.MultiIndex.from_tuples(keras_unique_param_sets_tuples, names=index_headers)
-    # print("index:", index)
-    keras_param_sets_occurrences_series = pd.Series(list(keras_param_sets_occurrences.values()), index=index)
-    # print("keras_param_sets_occurrences_series:", keras_param_sets_occurrences_series)
-    num_occurrences_str = 'num_occurrences'
-    keras_param_sets_occurrences_frame = keras_param_sets_occurrences_series.to_frame(num_occurrences_str)
-    print("keras_param_sets_occurrences_frame:", keras_param_sets_occurrences_frame)
-    keras_param_sets_occurrences_frame.reset_index(inplace=True)
-    # print("occ ind:", keras_param_sets_occurrences_frame.index)
-    # print("keras_param_sets_occurrences_frame.columns:", keras_param_sets_occurrences_frame.columns)
-    import matplotlib.pyplot as plt
-    for ind_col_name in keras_param_sets_occurrences_frame.columns:
-        if ind_col_name == num_occurrences_str:
-            continue
-        agg_data = (keras_param_sets_occurrences_frame.groupby(ind_col_name)[num_occurrences_str]).sum()
-        print(agg_data, agg_data.index, type(agg_data))
-        agg_data.plot(x=ind_col_name, y=num_occurrences_str, kind='bar')
-        plt.xticks(rotation=15, fontsize=6)
-        # Format y-axis labels as integers.
-        import math
-        y = np.unique(agg_data.values)
-        # Credit to https://stackoverflow.com/a/12051323/5449970 for this little code snippet.
-        plt.yticks(list(range(int(math.floor(min(y))), int(math.ceil(max(y)) + 1))))
-        plt.tight_layout()
-        plt.show()
-    print(keras_param_sets_occurrences_frame.sort_values(num_occurrences_str, ascending=True).iloc[-1,:])
+# TODO: Remove this code for testing tracking of and creation of figures for best param sets.
+#     import pandas as pd
+#
+#     index_headers = ['batch_size', 'hidden_layer_sizes', 'dropout_rate',
+#                      # Parameters for Adam optimizer.
+#                      'lr', 'beta_1', 'beta_2']
+#
+#     param_sets = [{'batch_size': 4, 'hidden_layer_sizes': str((512, 128, 32)), 'dropout_rate': 0.1,
+#                    'lr': 1e-4, 'beta_1': 0.7, 'beta_2': 0.8},
+#                   {'batch_size': 4, 'hidden_layer_sizes': str((512, 128, 32)), 'dropout_rate': 0.1,
+#                    'lr': 1e-4, 'beta_1': 0.7, 'beta_2': 0.9},
+#                   {'batch_size': 4, 'hidden_layer_sizes': str((512, 128, 32)), 'dropout_rate': 0.1,
+#                    'lr': 1e-4, 'beta_1': 0.7, 'beta_2': 0.9}]
+#
+#     keras_param_sets_occurrences = {}
+#
+#     for param_set in param_sets: # Pseudo-simulating the training loop.
+#         param_vals_tup = tuple(param_set.values())
+#         num_occurrences = keras_param_sets_occurrences.setdefault(param_vals_tup, 0)
+#         keras_param_sets_occurrences[param_vals_tup] = num_occurrences + 1
+#     # print("keras_param_sets_occurrences:", keras_param_sets_occurrences)
+#     keras_unique_param_sets_tuples = list(keras_param_sets_occurrences.keys())
+#     index = pd.MultiIndex.from_tuples(keras_unique_param_sets_tuples, names=index_headers)
+#     # print("index:", index)
+#     keras_param_sets_occurrences_series = pd.Series(list(keras_param_sets_occurrences.values()), index=index)
+#     print("keras_param_sets_occurrences_series:", keras_param_sets_occurrences_series)
+#     num_occurrences_str = 'num_occurrences'
+#     keras_param_sets_occurrences_frame = keras_param_sets_occurrences_series.to_frame(num_occurrences_str)
+#     print("keras_param_sets_occurrences_frame:", keras_param_sets_occurrences_frame)
+#     keras_param_sets_occurrences_frame.reset_index(inplace=True)
+#     # print("occ ind:", keras_param_sets_occurrences_frame.index)
+#     print("keras_param_sets_occurrences_frame.columns:", keras_param_sets_occurrences_frame.columns)
+#     import matplotlib.pyplot as plt
+#     # Bar plot aggregate occurrences for each parameter.
+#     fig_size = (6,6)
+#     num_frame_cols = len(keras_param_sets_occurrences_frame.columns)
+#     num_cols_collective_fig = 2
+#     import math
+#     num_rows_collective_fig = int(np.ceil(num_frame_cols / num_cols_collective_fig)) - int(math.ceil(1/num_cols_collective_fig)) # - num cols excluded/num_cols_collective_fig
+#     collective_fig_figsize = tuple(h_w*n_r_c for h_w,n_r_c in
+#                                    zip(fig_size,(num_rows_collective_fig, num_cols_collective_fig)))
+#     collective_fig = plt.figure(figsize=collective_fig_figsize)
+#     collective_fig_num = collective_fig.number
+#     import os
+#     if not os.path.exists('figures/tst'):
+#         os.mkdir('figures/tst')
+#     for ind_col_ind, ind_col_name in enumerate(keras_param_sets_occurrences_frame.columns):
+#         # print("ind col:", ind_col_name)
+#         if ind_col_name == num_occurrences_str:
+#             continue
+#         agg_data = (keras_param_sets_occurrences_frame.groupby(ind_col_name)[num_occurrences_str]).sum()
+#         print(agg_data, agg_data.index, type(agg_data))
+#         x_ticks_rotation_amt = 15 if ind_col_name=='hidden_layer_sizes' else 'horizontal'
+#         # Collective plot
+#         plt.figure(collective_fig_num)
+#         collective_ax_current = collective_fig.add_subplot(num_rows_collective_fig, num_cols_collective_fig,
+#                                                            ind_col_ind + 1)
+#         # plt.figure(collective_fig_num)
+#         # plt.bar(agg_data.index, agg_data)
+#         agg_data.plot(x=ind_col_name, y=num_occurrences_str, kind='bar', ax=collective_ax_current)
+#         plt.xticks(rotation=x_ticks_rotation_amt, fontsize=6)
+#         # Format y-axis labels as integers.
+#         y = np.unique(agg_data.values)
+#         # Credit to https://stackoverflow.com/a/12051323/5449970 for this little code snippet.
+#         plt.yticks(list(range(int(math.floor(min(y))), int(math.ceil(max(y)) + 1))))
+#         plt.ylabel('# Occurrences')
+#         plt.tight_layout()
+#         # Individual plot
+#         indiv_fig, indiv_fig_ax = plt.subplots(figsize=fig_size)
+#         agg_data.plot(x=ind_col_name, y=num_occurrences_str, kind='bar', ax=indiv_fig_ax)
+#         plt.xticks(rotation=x_ticks_rotation_amt, fontsize=6)
+#         y = np.unique(agg_data.values)
+#         plt.yticks(list(range(int(math.floor(min(y))), int(math.ceil(max(y)) + 1))))
+#         plt.ylabel('# Occurrences')
+#         plt.tight_layout()
+#         indiv_fig.savefig('figures/tst/{}.png'.format(ind_col_name))
+#     collective_fig.savefig('figures/tst/{}.png'.format('collective'))
+#     print(keras_param_sets_occurrences_frame.sort_values(num_occurrences_str, ascending=True).iloc[-1,:])

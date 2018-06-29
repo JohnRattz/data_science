@@ -1,4 +1,4 @@
-# TODO: Remove memory profiling when done debugging memory leak.
+# TODO: Remove memory profiling when done debugging memory consumption.
 from memory_profiler import profile
 @profile
 def main():
@@ -62,18 +62,25 @@ def main():
     ### Main Settings ###
 
     # Data Importing
+    # TODO: Note date ranges for both daily and hourly data.
+
     # Whether to load from CSV files or a local MySQL database ('csv' or 'sql').
     load_source = 'csv'
-
-    # Machine Learning Settings
-    # The resolution of data for the analysis.
-    analysis_data_resolution = 'daily'
+    analysis_data_resolution = 'daily' # TODO: Use 'daily'
+    analysis_data_date_range = ('2017-07-01', '2017-09-30') # Make sure this is about three months to avoid errors.
+        #('2013-04-28', '2017-12-31') # TODO: Use 2013-4-28 - 2017-12-31
+    analysis_time_unit = 'days' if analysis_data_resolution == 'daily' else 'hours'
     # The resolution of data for the machine learning models.
     model_data_resolution = 'hourly'
+    model_data_date_range = ('2017-07-01', '2017-12-31')
+    model_time_unit = 'days' if model_data_resolution == 'daily' else 'hours'
+    model_last_extrapolation_time = pd.to_datetime('2018-12-31')
+
+    # Machine Learning Settings
     # The number of logical processors to use during grid search.
     num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
     # Whether or not to use cross validation in Keras grid search.
-    keras_use_cv_grd_srch = False
+    keras_use_cv_grd_srch = False # TODO: Make this `True` when finished.
     # The level of verbosity
     keras_grd_srch_verbose = 0
 
@@ -95,8 +102,7 @@ def main():
     # bitcoin, bitcoin_cash, bitconnect, dash, ethereum, ethereum_classic, iota, litecoin, \
     # monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_daily_data(source=load_source)
     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
-        load_data(resolution=analysis_data_resolution, date_range=('2013-04-28', '2017-12-31'), source=load_source)
-
+        load_data(resolution=analysis_data_resolution, date_range=analysis_data_date_range, source=load_source)
     # Directory Structure Creation (Figures)
     currency_figures_subdirs = ['{}/{}'.format(figures_dir, currency_label.replace(' ', '_'))
                                 for currency_label in currencies_labels]
@@ -112,7 +118,9 @@ def main():
     for keras_figures_subdir in keras_figures_subdirs:
         if not os.path.exists(keras_figures_subdir):
             os.makedirs(keras_figures_subdir)
-
+    keras_param_occurrences_figures_dir = '{}/{}'.format(keras_figures_dir, 'param_occurrences')
+    if not os.path.exists(keras_param_occurrences_figures_dir):
+        os.makedirs(keras_param_occurrences_figures_dir)
     # Value Trends
 
     num_cols = 2
@@ -160,10 +168,14 @@ def main():
     prices.index = old_prices_index
     absent_values_fig.savefig('{}/absent_values.png'.format(figures_dir))
 
-    currencies_labels_tickers_to_remove = np.array(
-        [['Bitcoin Cash', 'BCH'], ['BitConnect', 'BCC'], ['Ethereum Classic', 'ETC'],
-         ['Iota', 'MIOTA'], ['Neo', 'NEO'], ['Numeraire', 'NMR'], ['Omisego', 'OMG'],
-         ['Qtum', 'QTUM'], ['Stratis', 'STRAT'], ['Waves', 'WAVES']])
+    # TODO: Determine `currencies_labels_tickers_to_remove` programatically.
+    if analysis_data_resolution == 'daily':
+        currencies_labels_tickers_to_remove = np.array(
+            [['Bitcoin Cash', 'BCH'], ['BitConnect', 'BCC'], ['Ethereum Classic', 'ETC'],
+             ['Iota', 'MIOTA'], ['Neo', 'NEO'], ['Numeraire', 'NMR'], ['Omisego', 'OMG'],
+             ['Qtum', 'QTUM'], ['Stratis', 'STRAT'], ['Waves', 'WAVES']])
+    else:
+        currencies_labels_tickers_to_remove = np.array([['Omisego', 'OMG']])
     currencies_labels_to_remove = currencies_labels_tickers_to_remove[:, 0]
     currencies_tickers_to_remove = currencies_labels_tickers_to_remove[:, 1]
     currencies_labels_and_tickers_to_remove = ["{} ({})".format(currencies_label, currencies_ticker)
@@ -178,13 +190,13 @@ def main():
     subset_currencies_labels_and_tickers = subset_prices.columns.values
     subset_num_currencies = len(subset_prices.columns)
     subset_prices_nonan = subset_prices.dropna()
-    print("Beginning and ending dates with data for remaining currencies: {}, {}".
-          format(subset_prices_nonan.index[0], subset_prices_nonan.index[-1]))
+    print("Beginning and ending {} with data for remaining currencies: {}, {}".
+          format(analysis_time_unit, subset_prices_nonan.index[0], subset_prices_nonan.index[-1]))
 
     # Volatility Examination
 
-    num_non_nan_days = len(subset_prices_nonan)
-    print("Considering {} days of price information (as many as without NaN values).".format(num_non_nan_days))
+    num_non_nan_times = len(subset_prices_nonan)
+    print("Considering {} {} of price information (as many as without NaN values).".format(num_non_nan_times, analysis_time_unit))
 
     # Find the returns.
     subset_returns = subset_prices_nonan.pct_change()
@@ -248,19 +260,44 @@ def main():
     plt.title('Markowitz Optimal Portfolio Weights')
     plt.savefig('{}/optimal_portfolio_weights.png'.format(figures_dir), dpi=figure_dpi)
 
+    # Load the data for model training.
+    num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
+        load_data(resolution=model_data_resolution, date_range=model_data_date_range, source=load_source)
+    currencies_labels_and_tickers_to_remove = \
+        [label_and_ticker_to_remove for label_and_ticker_to_remove in currencies_labels_and_tickers_to_remove
+         if label_and_ticker_to_remove in prices.columns]
+    subset_prices = prices.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
+    subset_currencies_labels = [currency_label for currency_label in currencies_labels
+                                if currency_label not in currencies_labels_to_remove]
+    subset_currencies_tickers = [currency_ticker for currency_ticker in currencies_tickers
+                                 if currency_ticker not in currencies_tickers_to_remove]
+    subset_currencies_labels_and_tickers = subset_prices.columns.values
+    subset_num_currencies = len(subset_prices.columns)
+    subset_prices_nonan = subset_prices.dropna()
+    date_times = subset_prices_nonan.index.values
+
+    model_last_data_time = prices.index[-1]
+    model_offset_time = {'days': 1} if model_data_resolution == 'daily' else {'hours': 1}
+    model_first_extrapolation_time = model_last_data_time + pd.DateOffset(**model_offset_time)
+    model_extrapolation_times = np.array(
+        pd.date_range(model_first_extrapolation_time, model_last_extrapolation_time,
+                      freq='D' if model_data_resolution == 'daily' else 'H'))
+    model_num_extrapolation_times = len(model_extrapolation_times)
+
     # Run Monte Carlo simulation to predict future values.
-    last_data_date = log_returns.index[-1]
-    first_extrapolation_date = last_data_date + pd.DateOffset(days=1)
-    last_extrapolation_date = pd.to_datetime('2018-12-31')
-    extrapolation_dates = np.array(pd.date_range(first_extrapolation_date, last_extrapolation_date))
-    num_extrapolation_dates = len(extrapolation_dates)
-    MC_predicted_values_ranges, MC_predicted_values = run_monte_carlo_financial_simulation(prices, extrapolation_dates)
+    # TODO: Remove these comments.
+    # analysis_last_data_time = prices.index[-1]
+    # analysis_offset_time = {'days':1} if analysis_data_resolution == 'daily' else {'hours':1}
+    # analysis_first_extrapolation_time = analysis_last_data_time + pd.DateOffset(**analysis_offset_time)
+    # analysis_extrapolation_times = \
+    #     np.array(pd.date_range(analysis_first_extrapolation_time, analysis_last_extrapolation_time,
+    #                            freq='D' if analysis_data_resolution == 'daily' else 'H'))
+    analysis_num_extrapolation_times = len(model_extrapolation_times)
+    MC_predicted_values_ranges, MC_predicted_values = run_monte_carlo_financial_simulation(prices, model_extrapolation_times)
     subset_monte_carlo_predicted_values_ranges = \
         MC_predicted_values_ranges.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
     subset_monte_carlo_predicted_values = \
         MC_predicted_values.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
-
-    dates = subset_prices_nonan.index.values
 
     # Directory Structure Creation (Machine Learning Models)
     currency_models_subdirs = ['{}/{}'.format(models_dir, currency_label.replace(' ', '_'))
@@ -270,7 +307,7 @@ def main():
             os.makedirs(currency_models_subdir)
 
     # We will predict closing prices based on these numbers of days preceding the date of prediction.
-    # The max `window_size` is `num_non_nan_days`, but even reasonably close values may result in poor models or even
+    # The max `window_size` is `num_non_nan_times`, but even reasonably close values may result in poor models or even
     # training failures (errors) due to small or even empty test sets, respectively, during cross validation.
     window_sizes = None
     if model_data_resolution == 'daily':
@@ -286,27 +323,12 @@ def main():
             if not os.path.exists(keras_figures_window_subdir):
                 os.makedirs(keras_figures_window_subdir)
 
-    # Load the hourly data for model training if such has been specified.
-    if model_data_resolution=='hourly':
-        num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
-            load_data(resolution=model_data_resolution, date_range=('2017-07-01', '2017-12-31'), source=load_source)
-        currencies_labels_and_tickers_to_remove = \
-            [label_and_ticker_to_remove for label_and_ticker_to_remove in currencies_labels_and_tickers_to_remove
-             if label_and_ticker_to_remove in prices.columns]
-        subset_prices = prices.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
-        subset_currencies_labels = [currency_label for currency_label in currencies_labels
-                                    if currency_label not in currencies_labels_to_remove]
-        subset_currencies_tickers = [currency_ticker for currency_ticker in currencies_tickers
-                                     if currency_ticker not in currencies_tickers_to_remove]
-        subset_currencies_labels_and_tickers = subset_prices.columns.values
-        subset_num_currencies = len(subset_prices.columns)
-        subset_prices_nonan = subset_prices.dropna()
-        dates = subset_prices_nonan.index.values
-
+    keras_param_names = None # The names of parameters used in Keras neural network grid search. This is set later.
     # Used to record and analyze (via a pandas DataFrame) the number of occurrences of each parameter set.
     keras_param_sets_occurrences = {}
     # Column name in resulting DataFrame that denotes what asset a row pertains to ('all' for collective asset models).
     asset_col_str = 'asset'
+    window_size_col_str = 'window_size'
     ### Main Loop ###
     for window_size in window_sizes:
         print("Predicting prices with a window of {} days of preceding currency values.".format(window_size))
@@ -372,8 +394,8 @@ def main():
         #                      'model__output_dim': [subset_num_currencies],
         #                      'model__epochs': [1000],
         #                      'model__batch_size': [100]}
-        first_hidden_layer_size_single_asset = 256
-        first_hidden_layer_size_collective = 512
+        first_hidden_layer_size_single_asset = 128 # TODO: Make this 256 when done testing.
+        first_hidden_layer_size_collective = 256 # TODO: Make this 512 when done testing.
         # three_hidden_layers = (first_hidden_layer_size_collective, first_hidden_layer_size_collective // 2,
         #                        first_hidden_layer_size_collective // 4)
         # four_hidden_layers = three_hidden_layers + (first_hidden_layer_size_collective // 8,)
@@ -393,14 +415,14 @@ def main():
                                           first_hidden_layer_size_collective // 16)]
         # hidden_layer_sizes_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 8)]
         keras_params_neural_net = \
-            {'batch_size': [4, 8, 12],  # A too large batch size results in device OOMs.
+            {'batch_size': [4],#, 8, 12],  # A too large batch size results in device OOMs.
              'hidden_layer_sizes': None,
-             'dropout_rate': [0.1, 0.2],
+             'dropout_rate': [0.1],#, 0.2],
              'optimizer': [Adam],
              # Parameters for Adam optimizer.
-             'lr': [1e-4],#[1e-8, 1e-6, 1e-4],
-             'beta_1': [0.7],#, 0.9],
-             'beta_2': [0.9]}#, 0.999]}
+             'lr': [1e-8],#, 1e-6, 1e-4],
+             'beta_1': [0.7],#, 0.8, 0.9],
+             'beta_2': [0.9]}#, 0.95, 0.999]}
         keras_param_names = list(keras_params_neural_net.keys())
         # The number of epochs to train for in cross validation.
         keras_neural_net_epochs_grd_srch = 2 # TODO: Make this larger. 100?
@@ -485,8 +507,6 @@ def main():
 
         ### Model Training ###
 
-        time_unit = 'days' if model_data_resolution=='daily' else 'hours' # Used for printing the training status.
-
         # Single Asset Model (consider only windows of values for one asset each (disallows learning of correlations))
         single_asset_models = []
         # Build a model for each cryptocurrency.
@@ -518,7 +538,7 @@ def main():
             if not load_models:
                 currency_label_and_ticker = subset_currencies_labels_and_tickers[currency_index]
                 print("Currently training a model for {} with a window size of {} {}."
-                    .format(currency_label_and_ticker, window_size, time_unit))
+                    .format(currency_label_and_ticker, window_size, model_time_unit))
 
                 # Tuples of scores, the corresponding models, and the best batch sizes for Keras models.
                 score_model_batch_size_tuples = []
@@ -542,7 +562,7 @@ def main():
                                                   figure_kwargs={'figsize':figure_size, 'dpi':figure_dpi})
                         print("After keras_reg_grid_search()! {} MB".format(process.memory_info().rss / 1024 / 1024))
                         best_param_set['optimizer'] = keras_convert_optimizer_obj_to_name(best_param_set['optimizer'])
-                        param_vals_tup = tuple(best_param_set.values()) + (currency_label,)
+                        param_vals_tup = tuple(best_param_set.values()) + (currency_label, window_size)
                         # print("param_vals_tup:", param_vals_tup)
                         num_occurrences = keras_param_sets_occurrences.setdefault(param_vals_tup, 0)
                         keras_param_sets_occurrences[param_vals_tup] = num_occurrences + 1
@@ -589,7 +609,7 @@ def main():
 
         if not load_models:
             print("Currently training a model for all assets collectively "
-                  "with a window size of {} {}.".format(window_size, time_unit))
+                  "with a window size of {} {}.".format(window_size, model_time_unit))
 
             # Tuples of scores and the corresponding models (along with the best batch sizes for Keras models)
             score_model_batch_size_tuples = []
@@ -613,7 +633,7 @@ def main():
                                               figure_kwargs={'figsize': figure_size, 'dpi': figure_dpi})
                     print("After keras_reg_grid_search()! {} MB".format(process.memory_info().rss / 1024 / 1024))
                     best_param_set['optimizer'] = keras_convert_optimizer_obj_to_name(best_param_set['optimizer'])
-                    param_vals_tup = tuple(best_param_set.values()) + ('all',)
+                    param_vals_tup = tuple(best_param_set.values()) + ('all', window_size)
                     # print("param_vals_tup:", param_vals_tup)
                     num_occurrences = keras_param_sets_occurrences.setdefault(param_vals_tup, 0)
                     keras_param_sets_occurrences[param_vals_tup] = num_occurrences + 1
@@ -652,33 +672,7 @@ def main():
                 with open(model_pickle_path, "rb") as model_infile:
                     collective_assets_model = pickle.load(model_infile)
 
-        # Validation and Visualization
-
-        # Visualize how often various parameter sets produced the best model.
-        keras_unique_param_sets_tuples = list(keras_param_sets_occurrences.keys())
-        index = pd.MultiIndex.from_tuples(keras_unique_param_sets_tuples, names=keras_param_names+[asset_col_str])
-        # print("index:", index)
-        keras_param_sets_occurrences_series = pd.Series(list(keras_param_sets_occurrences.values()), index=index)
-        print("keras_param_sets_occurrences_series:", keras_param_sets_occurrences_series)
-        num_occurrences_str = 'num_occurrences'
-        keras_param_sets_occurrences_frame = keras_param_sets_occurrences_series.to_frame(num_occurrences_str)
-        print("keras_param_sets_occurrences_frame:", keras_param_sets_occurrences_frame)
-        keras_param_sets_occurrences_frame.reset_index(inplace=True)
-        for ind_col_name in keras_param_sets_occurrences_frame.columns:
-            if ind_col_name == num_occurrences_str:
-                continue
-            agg_data = (keras_param_sets_occurrences_frame
-                .groupby(ind_col_name)[num_occurrences_str]).sum()
-            print(agg_data, agg_data.index)
-            agg_data.plot(x=ind_col_name, y=num_occurrences_str, kind='bar')
-            plt.xticks(rotation=15, fontsize=6)
-            # Format y-axis labels as integers.
-            y = np.unique(agg_data.values)
-            # Credit to https://stackoverflow.com/a/12051323/5449970 for this little code snippet.
-            plt.yticks(list(range(int(math.floor(min(y))), int(math.ceil(max(y)) + 1))))
-            plt.tight_layout()
-            plt.show()
-        exit()
+        # Validation and Visualization (for each window size)
 
         # Single Asset Model Predictions
         def single_asset_models_predict(X):
@@ -703,6 +697,7 @@ def main():
         collective_assets_model_pred = y_scaler.inverse_transform(collective_assets_model.predict(X_scaled))
 
         ### Plotting ###
+        print("Before plotting! {} MB".format(process.memory_info().rss / 1024 / 1024))
         # The colors of lines for various things.
         actual_values_color = 'blue'
         actual_values_label = 'True'
@@ -724,13 +719,13 @@ def main():
             # Collective plot
             collective_ax_current = collective_fig.add_subplot(subset_num_rows, subset_num_cols, currency_index + 1)
             # Actual values
-            collective_ax_current.plot(dates[window_size:], y[:, currency_index],
+            collective_ax_current.plot(date_times[window_size:], y[:, currency_index],
                                        color=actual_values_color, alpha=0.5, label=actual_values_label)
             # Single Asset Model Predictions
-            collective_ax_current.plot(dates[window_size:], single_asset_models_pred[:, currency_index],
+            collective_ax_current.plot(date_times[window_size:], single_asset_models_pred[:, currency_index],
                                        color=ml_model_single_asset_color, alpha=0.5, label=ml_model_single_asset_label)
             # Collective Model Predictions
-            collective_ax_current.plot(dates[window_size:], collective_assets_model_pred[:, currency_index],
+            collective_ax_current.plot(date_times[window_size:], collective_assets_model_pred[:, currency_index],
                                        color=ml_model_collective_color, alpha=0.5, label=ml_model_collective_label)
             collective_ax_current.set_xlabel('Date')
             collective_ax_current.set_ylabel('Close')
@@ -741,13 +736,13 @@ def main():
             indiv_fig = plt.figure(figsize=(12, 6))
             indiv_fig_ax = indiv_fig.add_subplot(111)
             # Actual values
-            indiv_fig_ax.plot(dates[window_size:], y[:, currency_index],
+            indiv_fig_ax.plot(date_times[window_size:], y[:, currency_index],
                               color=actual_values_color, alpha=0.5, label=actual_values_label)
             # Single Asset Model Predictions
-            indiv_fig_ax.plot(dates[window_size:], single_asset_models_pred[:, currency_index],
+            indiv_fig_ax.plot(date_times[window_size:], single_asset_models_pred[:, currency_index],
                               color=ml_model_single_asset_color, alpha=0.5, label=ml_model_single_asset_label)
             # Collective Model Predictions
-            indiv_fig_ax.plot(dates[window_size:], collective_assets_model_pred[:, currency_index],
+            indiv_fig_ax.plot(date_times[window_size:], collective_assets_model_pred[:, currency_index],
                               color=ml_model_collective_color, alpha=0.5, label=ml_model_collective_label)
             indiv_fig_ax.set_xlabel('Date')
             indiv_fig_ax.set_ylabel('Close')
@@ -765,14 +760,14 @@ def main():
         # Get the models' predictions for the rest of 2017 and 2018.
         # Single Asset Model Predictions
         single_asset_models_extrapolation_X = \
-            np.zeros((num_extrapolation_dates, subset_num_currencies * window_size), dtype=np.float64)
+            np.zeros((model_num_extrapolation_times, subset_num_currencies * window_size), dtype=np.float64)
         single_asset_models_extrapolation_y = \
-            np.zeros((num_extrapolation_dates, subset_num_currencies), dtype=np.float64)
+            np.zeros((model_num_extrapolation_times, subset_num_currencies), dtype=np.float64)
         # Collective Model Predictions
         collective_assets_model_extrapolation_X = \
-            np.zeros((num_extrapolation_dates, subset_num_currencies * window_size), dtype=np.float64)
+            np.zeros((model_num_extrapolation_times, subset_num_currencies * window_size), dtype=np.float64)
         collective_assets_model_extrapolation_y = \
-            np.zeros((num_extrapolation_dates, subset_num_currencies), dtype=np.float64)
+            np.zeros((model_num_extrapolation_times, subset_num_currencies), dtype=np.float64)
 
         # First `window_size` windows contain known values.
         given_prices = subset_prices_nonan.values[-window_size:].flatten()
@@ -801,7 +796,7 @@ def main():
             collective_assets_model_extrapolation_y[currency_index] = \
                 collective_assets_model.predict(collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten()
         # Remaining windows contain only predicted values (predicting based on previous predictions).
-        for currency_index in range(window_size, num_extrapolation_dates):
+        for currency_index in range(window_size, model_num_extrapolation_times):
             # Single Asset Model Predictions
             single_asset_models_previous_predicted_prices = \
                 single_asset_models_extrapolation_y[currency_index - window_size:currency_index].flatten()
@@ -826,16 +821,16 @@ def main():
             # Collective plot
             collective_ax_current = collective_fig.add_subplot(subset_num_rows, subset_num_cols, currency_index + 1)
             # Single Asset Model Predictions
-            collective_ax_current.plot(extrapolation_dates, single_asset_models_extrapolation_y[:, currency_index],
+            collective_ax_current.plot(model_extrapolation_times, single_asset_models_extrapolation_y[:, currency_index],
                                        color=ml_model_single_asset_color, label=ml_model_single_asset_label)
             # Collective Model Predictions
-            collective_ax_current.plot(extrapolation_dates, collective_assets_model_extrapolation_y[:, currency_index],
+            collective_ax_current.plot(model_extrapolation_times, collective_assets_model_extrapolation_y[:, currency_index],
                                        color=ml_model_collective_color, label=ml_model_collective_label)
             # Monte Carlo predictions
-            collective_ax_current.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
+            collective_ax_current.plot(model_extrapolation_times, subset_monte_carlo_predicted_values[label_and_ticker],
                                        color=monte_carlo_color, label=monte_carlo_label)
             # Monte Carlo predictions (95% confidence interval)
-            monte_carlo_plot_confidence_band(collective_ax_current, extrapolation_dates,
+            monte_carlo_plot_confidence_band(collective_ax_current, model_extrapolation_times,
                                              MC_predicted_values_ranges, label_and_ticker, color='cyan')
             collective_ax_current.set_xlabel('Date')
             collective_ax_current.set_ylabel('Close')
@@ -846,16 +841,16 @@ def main():
             indiv_fig = plt.figure(figsize=(12, 6))
             indiv_fig_ax = indiv_fig.add_subplot(111)
             # Single Asset Model Predictions
-            indiv_fig_ax.plot(extrapolation_dates, single_asset_models_extrapolation_y[:, currency_index],
+            indiv_fig_ax.plot(model_extrapolation_times, single_asset_models_extrapolation_y[:, currency_index],
                               color=ml_model_single_asset_color, label=ml_model_single_asset_label)
             # Collective Model Predictions
-            indiv_fig_ax.plot(extrapolation_dates, collective_assets_model_extrapolation_y[:, currency_index],
+            indiv_fig_ax.plot(model_extrapolation_times, collective_assets_model_extrapolation_y[:, currency_index],
                               color=ml_model_collective_color, label=ml_model_collective_label)
             # Monte Carlo predictions
-            indiv_fig_ax.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
+            indiv_fig_ax.plot(model_extrapolation_times, subset_monte_carlo_predicted_values[label_and_ticker],
                               color=monte_carlo_color, label=monte_carlo_label)
             # Monte Carlo predictions (95% confidence interval)
-            monte_carlo_plot_confidence_band(indiv_fig_ax, extrapolation_dates,
+            monte_carlo_plot_confidence_band(indiv_fig_ax, model_extrapolation_times,
                                              MC_predicted_values_ranges, label_and_ticker, color='cyan')
             indiv_fig_ax.set_xlabel('Date')
             indiv_fig_ax.set_ylabel('Close')
@@ -879,19 +874,19 @@ def main():
             # Collective plot
             collective_ax_current = collective_fig.add_subplot(subset_num_rows, subset_num_cols, currency_index + 1)
             # Actual values
-            collective_ax_current.plot(dates[window_size:], y[:, currency_index],
+            collective_ax_current.plot(date_times[window_size:], y[:, currency_index],
                                        color=actual_values_color, label=actual_values_label)
             # Single Asset Model Predictions
-            collective_ax_current.plot(extrapolation_dates, single_asset_models_extrapolation_y[:, currency_index],
+            collective_ax_current.plot(model_extrapolation_times, single_asset_models_extrapolation_y[:, currency_index],
                                        color=ml_model_single_asset_color, label=ml_model_single_asset_label)
             # Collective Model Predictions
-            collective_ax_current.plot(extrapolation_dates, collective_assets_model_extrapolation_y[:, currency_index],
+            collective_ax_current.plot(model_extrapolation_times, collective_assets_model_extrapolation_y[:, currency_index],
                                        color=ml_model_collective_color, label=ml_model_collective_label)
             # Monte Carlo predictions
-            collective_ax_current.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
+            collective_ax_current.plot(model_extrapolation_times, subset_monte_carlo_predicted_values[label_and_ticker],
                                        color=monte_carlo_color, label=monte_carlo_label)
             # Monte Carlo predictions (95% confidence interval)
-            monte_carlo_plot_confidence_band(collective_ax_current, extrapolation_dates,
+            monte_carlo_plot_confidence_band(collective_ax_current, model_extrapolation_times,
                                              MC_predicted_values_ranges, label_and_ticker, color='cyan')
             collective_ax_current.set_xlabel('Date')
             collective_ax_current.set_ylabel('Close')
@@ -902,19 +897,19 @@ def main():
             indiv_fig = plt.figure(figsize=(12, 6))
             indiv_fig_ax = indiv_fig.add_subplot(111)
             # Actual values
-            indiv_fig_ax.plot(dates[window_size:], y[:, currency_index],
+            indiv_fig_ax.plot(date_times[window_size:], y[:, currency_index],
                               color=actual_values_color, label=actual_values_label)
             # Single Asset Model Predictions
-            indiv_fig_ax.plot(extrapolation_dates, single_asset_models_extrapolation_y[:, currency_index],
+            indiv_fig_ax.plot(model_extrapolation_times, single_asset_models_extrapolation_y[:, currency_index],
                               color=ml_model_single_asset_color, label=ml_model_single_asset_label)
             # Collective Model Predictions
-            indiv_fig_ax.plot(extrapolation_dates, collective_assets_model_extrapolation_y[:, currency_index],
+            indiv_fig_ax.plot(model_extrapolation_times, collective_assets_model_extrapolation_y[:, currency_index],
                               color=ml_model_collective_color, label=ml_model_collective_label)
             # Monte Carlo predictions
-            indiv_fig_ax.plot(extrapolation_dates, subset_monte_carlo_predicted_values[label_and_ticker],
+            indiv_fig_ax.plot(model_extrapolation_times, subset_monte_carlo_predicted_values[label_and_ticker],
                               color=monte_carlo_color, label=monte_carlo_label)
             # Monte Carlo predictions (95% confidence interval)
-            monte_carlo_plot_confidence_band(indiv_fig_ax, extrapolation_dates,
+            monte_carlo_plot_confidence_band(indiv_fig_ax, model_extrapolation_times,
                                              MC_predicted_values_ranges, label_and_ticker, color='cyan')
             indiv_fig_ax.set_xlabel('Date')
             indiv_fig_ax.set_ylabel('Close')
@@ -927,7 +922,61 @@ def main():
                               dpi=figure_dpi)
         collective_fig.savefig('{}/actual_plus_predictions_{}.png'.format(figures_dir, window_size), dpi=figure_dpi)
         plt.close('all')
+        print("After plotting! {} MB".format(process.memory_info().rss / 1024 / 1024))
 
+    # Visualize how many of the best Keras models were produced in aggregate
+    # for all unique values of each parameter.
+    print("Before param occurrences figure creation! {} MB".format(process.memory_info().rss / 1024 / 1024))
+    keras_unique_param_sets_tuples = list(keras_param_sets_occurrences.keys())
+    col_names_to_add = [asset_col_str, window_size_col_str]  # Order matters here.
+    index = pd.MultiIndex.from_tuples(keras_unique_param_sets_tuples, names=keras_param_names + col_names_to_add)
+    # print("index:", index)
+    keras_param_sets_occurrences_series = pd.Series(list(keras_param_sets_occurrences.values()), index=index)
+    # print("keras_param_sets_occurrences_series:", keras_param_sets_occurrences_series)
+    num_occurrences_str = 'num_occurrences'
+    keras_param_sets_occurrences_frame = keras_param_sets_occurrences_series.to_frame(num_occurrences_str)
+    # print("keras_param_sets_occurrences_frame:", keras_param_sets_occurrences_frame)
+    keras_param_sets_occurrences_frame.reset_index(inplace=True)
+    param_occurrences_fig_size = (6, 6)
+    num_frame_cols = len(keras_param_sets_occurrences_frame.columns)
+    col_names_to_exclude = [num_occurrences_str, window_size_col_str]
+    num_cols_collective_fig = 2
+    num_rows_collective_fig = int(np.ceil(num_frame_cols / num_cols_collective_fig)) - \
+                              int(math.ceil(len(col_names_to_exclude) / num_cols_collective_fig))
+    collective_fig_figsize = tuple(h_w * n_r_c for h_w, n_r_c in
+                                   zip(param_occurrences_fig_size,
+                                       (num_rows_collective_fig, num_cols_collective_fig)))
+    collective_fig = plt.figure(figsize=collective_fig_figsize)
+    collective_fig_num = collective_fig.number
+    for ind_col_ind, ind_col_name in enumerate(keras_param_sets_occurrences_frame.columns):
+        if ind_col_name in col_names_to_exclude:
+            continue
+        agg_data = (keras_param_sets_occurrences_frame.groupby(ind_col_name)[num_occurrences_str]).sum()
+        x_ticks_rotation_amt = 15 if ind_col_name == 'hidden_layer_sizes' else 'horizontal'
+        # Collective plot
+        plt.figure(collective_fig_num)
+        collective_ax_current = collective_fig.add_subplot(num_rows_collective_fig, num_cols_collective_fig,
+                                                           ind_col_ind + 1)
+        agg_data.plot(x=ind_col_name, y=num_occurrences_str, kind='bar', ax=collective_ax_current)
+        plt.xticks(rotation=x_ticks_rotation_amt, fontsize=6)
+        # Format y-axis labels as integers.
+        unique_num_occurrences = np.unique(agg_data.values)
+        # Credit to https://stackoverflow.com/a/12051323/5449970 for this little code snippet.
+        plt.yticks(list(range(int(math.floor(min(unique_num_occurrences))),
+                              int(math.ceil(max(unique_num_occurrences)) + 1))))
+        plt.ylabel('# Occurrences')
+        plt.tight_layout()
+        # Individual plot
+        indiv_fig, indiv_fig_ax = plt.subplots(figsize=param_occurrences_fig_size)
+        agg_data.plot(x=ind_col_name, y=num_occurrences_str, kind='bar', ax=indiv_fig_ax)
+        plt.xticks(rotation=x_ticks_rotation_amt, fontsize=6)
+        plt.yticks(list(range(int(math.floor(min(unique_num_occurrences))),
+                              int(math.ceil(max(unique_num_occurrences)) + 1))))
+        plt.ylabel('# Occurrences')
+        plt.tight_layout()
+        indiv_fig.savefig('{}/{}.png'.format(keras_param_occurrences_figures_dir, ind_col_name))
+    collective_fig.savefig('{}/{}.png'.format(keras_param_occurrences_figures_dir, 'collective'))
+    print("After param occurrences figure creation! {} MB".format(process.memory_info().rss / 1024 / 1024))
 
 if __name__ == '__main__':
     main()
