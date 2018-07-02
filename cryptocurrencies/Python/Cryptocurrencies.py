@@ -87,21 +87,21 @@ def main():
     # Plotting Settings
     # TODO: Ensure this logic works even if using no Keras models.
     # Whether or not to plot analysis plots.
-    make_analysis_plots = False # TODO: True works
+    make_analysis_plots = True
     # Whether or not to plot prediction plots.
-    make_prediction_plots = False # TODO: True works
+    make_prediction_plots = True
     # Whether or not to plot loss for Keras neural networks over time during training when not using cross validation.
     # This setting only matters when `keras_use_cv_grd_srch == False`.
-    make_keras_loss_plots = True
+    make_keras_loss_plots = False
     # Whether or not to make plots of parameter set occurrences for Keras neural networks.
     # These figures are used to visualize the most successful parameter sets for Keras neural networks.
-    make_keras_param_set_occurrence_plots = False
+    make_keras_param_set_occurrence_plots = True
     # Whether Keras figures will be made for individual assets.
     make_asset_keras_figures = make_keras_loss_plots
     # Whether figures will be made for individual assets.
     make_asset_figures = make_analysis_plots or make_prediction_plots or make_asset_keras_figures
     # Whether non-asset-specific Keras figures will be made.
-    make_keras_figures = make_keras_param_set_occurrence_plots
+    make_keras_figures = make_keras_loss_plots or make_keras_param_set_occurrence_plots
     # Whether any figures at all will be created.
     make_any_figures = (make_analysis_plots or make_prediction_plots or
                         make_keras_loss_plots or make_keras_param_set_occurrence_plots)
