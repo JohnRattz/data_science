@@ -181,6 +181,8 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
     # import os
     # import psutil
     # process = psutil.Process(os.getpid())
+    print("plot_losses:", plot_losses)
+    print("plotting_dir:", plotting_dir)
     # Verbosity for Keras fit().
     keras_verbose = max(0, verbose - 1)
     loss_plotters = {} if plot_losses else None # Dictionary mapping non-optimizer parameter values to loss plotters.
@@ -246,7 +248,7 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
                 y_scaler.fit(y)
                 y_scaled = y_scaler.transform(y)
             model.fit(X_scaled, y_scaled, epochs=epochs, batch_size=batch_size, verbose=keras_verbose,
-                      callbacks=[loss_plotter])
+                      callbacks=[loss_plotter] if plot_losses else None)
             y_pred = model.predict(X)
             score = scoring(y,y_pred)
         return model, score
