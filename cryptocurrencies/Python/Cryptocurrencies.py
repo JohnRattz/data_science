@@ -4,9 +4,10 @@ from memory_profiler import profile
 def main():
     ### Environment and Pre-load Library Settings###
     from utilities.Python.machine_learning import keras_init
-    # `gpu_mem_frac` may need to change for your system.
+    # `gpu_mem_frac` is the fraction of GPU memory dedicated to the TensorFlow backend
+    # of Keras and may need to change for your system.
     # For reference, I run this script with a GTX 1080Ti, which has 11GB of memory.
-    keras_init(gpu_mem_frac=0.5)
+    keras_init(gpu_mem_frac=0.6)
 
     ### Imports ###
 
@@ -62,25 +63,24 @@ def main():
     ### Main Settings ###
 
     # Data Importing
-    # TODO: Note date ranges for both daily and hourly data.
+    # NOTE: See `ETL.load_data()` `date_range` parameter documentation for date ranges for daily and hourly data.
 
     # Whether to load from CSV files or a local MySQL database ('csv' or 'sql').
     load_source = 'csv'
-    analysis_data_resolution = 'daily' # TODO: Use 'daily'
-    analysis_data_date_range = ('2017-07-01', '2017-09-30') # Make sure this is about three months to avoid errors.
-        #('2013-04-28', '2017-12-31') # TODO: Use 2013-4-28 - 2017-12-31
+    analysis_data_resolution = 'daily'
+    analysis_data_date_range = ('2013-07-01', '2017-10-31') # Make sure this is at least three months to avoid errors.
     analysis_time_unit = 'days' if analysis_data_resolution == 'daily' else 'hours'
     # The resolution of data for the machine learning models.
     model_data_resolution = 'hourly'
     model_data_date_range = ('2017-07-01', '2017-12-31')
     model_time_unit = 'days' if model_data_resolution == 'daily' else 'hours'
-    model_last_extrapolation_time = pd.to_datetime('2018-12-31')
+    model_last_extrapolation_time = pd.to_datetime('2018-03-31')
 
     # Machine Learning Settings
     # The number of logical processors to use during grid search.
     num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
     # Whether or not to use cross validation in Keras grid search.
-    keras_use_cv_grd_srch = False # TODO: Make this `True` when finished.
+    keras_use_cv_grd_srch = True
     # The level of verbosity in `keras_reg_grid_search()`.
     keras_grd_srch_verbose = 0
 
@@ -121,8 +121,6 @@ def main():
     ### End Main Settings ###
 
     # Data Importing
-    # bitcoin, bitcoin_cash, bitconnect, dash, ethereum, ethereum_classic, iota, litecoin, \
-    # monero, nem, neo, numeraire, omisego, qtum, ripple, stratis, waves = load_daily_data(source=load_source)
     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
         load_data(resolution=analysis_data_resolution, date_range=analysis_data_date_range, source=load_source)
     # Directory Structure Creation (Figures)
@@ -220,7 +218,8 @@ def main():
           format(analysis_time_unit, subset_prices_nonan.index[0], subset_prices_nonan.index[-1]))
 
     num_non_nan_times = len(subset_prices_nonan)
-    print("Considering {} {} of price information (as many as without NaN values).".format(num_non_nan_times, analysis_time_unit))
+    print("Considering {} {} of price information for analysis (as many as without NaN values)."
+          .format(num_non_nan_times, analysis_time_unit))
 
     # Find the returns.
     subset_returns = subset_prices_nonan.pct_change()
@@ -302,7 +301,10 @@ def main():
     subset_currencies_labels_and_tickers = subset_prices.columns.values
     subset_num_currencies = len(subset_prices.columns)
     subset_prices_nonan = subset_prices.dropna()
+    num_non_nan_times = len(subset_prices_nonan)
     date_times = subset_prices_nonan.index.values
+    print("Considering {} {} of price information for model training (as many as without NaN values)."
+          .format(num_non_nan_times, model_time_unit))
 
     model_last_data_time = prices.index[-1]
     model_offset_time = {'days': 1} if model_data_resolution == 'daily' else {'hours': 1}
@@ -313,14 +315,6 @@ def main():
     model_num_extrapolation_times = len(model_extrapolation_times)
 
     # Run Monte Carlo simulation to predict future values.
-    # TODO: Remove these comments.
-    # analysis_last_data_time = prices.index[-1]
-    # analysis_offset_time = {'days':1} if analysis_data_resolution == 'daily' else {'hours':1}
-    # analysis_first_extrapolation_time = analysis_last_data_time + pd.DateOffset(**analysis_offset_time)
-    # analysis_extrapolation_times = \
-    #     np.array(pd.date_range(analysis_first_extrapolation_time, analysis_last_extrapolation_time,
-    #                            freq='D' if analysis_data_resolution == 'daily' else 'H'))
-    analysis_num_extrapolation_times = len(model_extrapolation_times)
     MC_predicted_values_ranges, MC_predicted_values = run_monte_carlo_financial_simulation(prices, model_extrapolation_times)
     subset_monte_carlo_predicted_values_ranges = \
         MC_predicted_values_ranges.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
@@ -338,10 +332,11 @@ def main():
     # The max `window_size` is `num_non_nan_times`, but even reasonably close values may result in poor models or even
     # training failures (errors) due to small or even empty test sets, respectively, during cross validation.
     if model_data_resolution == 'daily':
-        window_sizes = [7, 14] + list(range(30, 361, 30))  # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
+        window_sizes = np.array([7, 14] + list(range(30, 361, 30))) # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
     else:
-        window_sizes = 24*7*np.array([1])#np.array([1, 2, 4, 8])  # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months. # TODO: Restore window_sizes.
+        window_sizes = 24*7*np.array([1, 2, 4, 8]) # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months.
         # With just 14 days and 7 cryptocurrencies, we have 14 * 24 * 7 = 2352 features.
+        window_sizes = window_sizes[::-1] # User larger to smaller window sizes to catch memory-related errors early.
 
     # Directory Structure Creation (Keras Optimization Trend Figures)
     if make_asset_keras_figures:
@@ -363,7 +358,7 @@ def main():
 
     ### Main Loop ###
     for window_size in window_sizes:
-        print("Predicting prices with a window of {} days of preceding currency values.".format(window_size))
+        print("Predicting prices with a window of {} {} of preceding currency values.".format(window_size, model_time_unit))
 
         # Data Extraction
         num_windows = len(subset_prices_nonan) - window_size
@@ -426,8 +421,8 @@ def main():
         #                      'model__output_dim': [subset_num_currencies],
         #                      'model__epochs': [1000],
         #                      'model__batch_size': [100]}
-        first_hidden_layer_size_single_asset = 128 # TODO: Make this 256 when done testing.
-        first_hidden_layer_size_collective = 256 # TODO: Make this 512 when done testing.
+        first_hidden_layer_size_single_asset = 256 # TODO: Make this 256 when done testing.
+        first_hidden_layer_size_collective = 512 # TODO: Make this 512 when done testing.
         # three_hidden_layers = (first_hidden_layer_size_collective, first_hidden_layer_size_collective // 2,
         #                        first_hidden_layer_size_collective // 4)
         # four_hidden_layers = three_hidden_layers + (first_hidden_layer_size_collective // 8,)
@@ -447,19 +442,22 @@ def main():
                                           first_hidden_layer_size_collective // 16)]
         # hidden_layer_sizes_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 8)]
         keras_params_neural_net = \
-            {'batch_size': [4],#, 8, 12],  # A too large batch size results in device OOMs.
+            {'batch_size': [4, 8, 12],  # A too large batch size results in device OOMs.
              'hidden_layer_sizes': None,
-             'dropout_rate': [0.1],#, 0.2],
+             'dropout_rate': [0.1, 0.2],
              'optimizer': [Adam],
              # Parameters for Adam optimizer.
-             'lr': [1e-8],#, 1e-6, 1e-4],
-             'beta_1': [0.7],#, 0.8, 0.9],
-             'beta_2': [0.9]}#, 0.95, 0.999]}
+             'lr': [1e-8, 1e-6, 1e-4],
+             'beta_1': [0.8, 0.9],
+             'beta_2': [0.95, 0.999]}
         keras_param_names = list(keras_params_neural_net.keys())
-        # The number of epochs to train for in cross validation.
-        keras_neural_net_epochs_grd_srch = 2 # TODO: Make this larger. 100?
+        # The number of epochs to train for in grid search.
+        # NOTE: This will likely impact run time much more significantly than `keras_neural_net_epochs` by a factor of
+        # the number of parameter combinations in `keras_params_neural_net`, further multiplied by `n_splits` used
+        # for cross validation (the `cv` object below) if `keras_use_cv_grd_srch`.
+        keras_neural_net_epochs_grd_srch = 25 # TODO: Make this larger. 50?
         # The number of epochs to train for after cross validation.
-        keras_neural_net_epochs = 1 # TODO: Make this larger. 100?
+        keras_neural_net_epochs = 50 # TODO: Make this larger. 100?
         # make_keras_picklable()
         # print(type(KerasRegressor(build_fn=create_keras_model)))
         # from model_saving_loading import save_keras_pipeline, load_keras_pipeline

@@ -148,6 +148,7 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
     """
     TODO: Why use `build_fn` when there is only one sensible build function to call?
     TODO: Document this function (X, y, build_fn, cv).
+    TODO: Allow this to run with Python multiprocessing.
 
     Parameters
     ----------
@@ -181,8 +182,6 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
     # import os
     # import psutil
     # process = psutil.Process(os.getpid())
-    print("plot_losses:", plot_losses)
-    print("plotting_dir:", plotting_dir)
     # Verbosity for Keras fit().
     keras_verbose = max(0, verbose - 1)
     loss_plotters = {} if plot_losses else None # Dictionary mapping non-optimizer parameter values to loss plotters.
