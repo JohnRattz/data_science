@@ -18,12 +18,17 @@ def load_data(resolution, date_range=None, allow_mixing=True, source='csv', writ
     ----------
     resolution: str
         Specifies the resolution of the data to load. Either 'daily' or 'hourly'.\n
-        TODO: Document which cryptocurrencies are in daily and hourly data.
-        Daily data spans April 28, 2013 to November 7, 2017.\n
-        Hourly data spans July 1, 2017 to April 27, 2018 and covers fewer cryptocurrencies than daily data.
+        Daily data spans April 28, 2013 to November 7, 2017 and contains 17 cryptocurrencies: Bitcoin Cash (BCH),
+        Bitcoin (BTC), BitConnect (BCC), Dash (DASH), Ethereum Classic (ETC), Ethereum (ETH), Iota (MIOTA),
+        Litecoin (LTC), Monero (XMR), Nem (XEM), Neo (NEO), Numeraire (NMR), Omisego (OMG), Qtum (QTUM),
+        Ripple (XRP), Stratis (STRAT), and Waves (WAVES). Many of these have NaN values for much of the available date
+        range, since they did not exist for much of it.
+        Hourly data spans July 1, 2017 to April 27, 2018 and contains 10 cryptocurrencies: Bitcoin (BTC), Dash (DASH),
+        Ethereum Classic (ETC), Ethereum (ETH), Litecoin (LTC), Monero (XMR), Nem (XEM), Neo (NEO), Omisego (OMG),
+        and Ripple (XRP).
     date_range: tuple
-        A 2-tuple of the start and end dates of data to retrieve, specified as strings in the format:
-        `YYYY-MM-DD`. Only considered if `resolution=='daily'`.
+        A 2-tuple of the start and end dates of data to retrieve - inclusive on both ends and specified as strings
+        in the format: `YYYY-MM-DD`.
     allow_mixing: bool
         Whether or not to allow data to be retrieved from data sources other than the primary data source if the
         primary data source does not contain data for the specified `date_range`.
@@ -225,13 +230,14 @@ if __name__ == '__main__':
     # num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
     #     load_data(resolution='daily', date_range=('2013-04-28', '2017-12-31'))
     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
-        load_data(resolution='hourly', date_range=('2017-07-01', '2017-12-31'))
-#     print(prices.index[[0,-1]], type(prices.index[0]))
-#     print("num_currencies: ", num_currencies)
-#     print("currencies_labels: ", currencies_labels)
-#     print("currencies_tickers: ", currencies_tickers)
-#     print("currencies_labels_and_tickers: ", currencies_labels_and_tickers)
-#     print("prices.columns: ", prices.columns)
+        load_data(resolution='daily', date_range=('2017-07-01', '2017-12-31'))
+    # print(prices.index[[0,-1]], type(prices.index[0]))
+    # print("num_currencies: ", num_currencies)
+    # print("currencies_labels: ", currencies_labels)
+    # print("currencies_tickers: ", currencies_tickers)
+    # print("currencies_labels_and_tickers: ", currencies_labels_and_tickers)
+    print("prices.columns: ", prices.columns)
+    exit()
 # TODO: Remove this code for creation of figures for best param sets.
     import pandas as pd
 
