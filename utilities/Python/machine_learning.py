@@ -5,7 +5,7 @@ from globals import utilities_dir
 
 # Custom utilities
 sys.path.insert(0,'../../' + utilities_dir)
-from dict_ops import get_combinations
+from dict_ops import get_dict_combinations
 from plotting import KerasPlotLosses
 
 from sklearn.metrics import r2_score
@@ -20,8 +20,10 @@ from keras import optimizers
 from sklearn.preprocessing import StandardScaler
 
 import numpy as np
-
 import matplotlib.pyplot as plt
+
+from functools import partial
+from multiprocessing import Pool
 
 ### Keras ###
 
@@ -58,7 +60,6 @@ def create_keras_regressor(input_dim, hidden_layer_sizes, output_dim,
     """
     TODO: Document this function.
     TODO: Use max norm (Dense(kernel_constraint=maxnorm(m)))?
-    :return:
     """
     dropout_rate = kwargs.get('dropout_rate', None)
     # Construct the optimizer.
@@ -142,13 +143,14 @@ def extract_non_optimizer_params(optimizer, param_set):
         non_optimizer_params[non_optimizer_param_name] = param_set[non_optimizer_param_name]
     return non_optimizer_params
 
-def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=None, scoring=r2_score, scale=True,
-                          verbose=0, plot_losses=False, plotting_dir=None, figure_title_prefix="", figure_kwargs={},
-                          plotting_kwargs={}):
+def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv_epochs=None, cv=None, scoring=r2_score, scale=True,
+                          verbose=0, plot_losses=False, plotting_dir=None, figure_title_prefix="",
+                          figure_kwargs={}, plotting_kwargs={}):
     """
     TODO: Why use `build_fn` when there is only one sensible build function to call?
-    TODO: Document this function (X, y, build_fn, cv).
-    TODO: Allow this to run with Python multiprocessing.
+    TODO: Document this function (X, y, build_fn).
+    TODO: Try to sleep the calling thread on Keras model `fit()` calls (low priority)?
+    TODO: Plot losses for each param set or the best param set (add parameter to specify).
 
     Parameters
     ----------
@@ -158,7 +160,13 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
         A dictionary of parameter names and values to be tested.
         Must contain 'batch_size' and 'hidden_layer_sizes` entries.
     epochs: int
-        The number of epochs to run during training.
+        The number of epochs to run during grid search without cross validation (i.e. ``cv is None``) or on the best
+        parameter set found by grid search with cross validation.
+    cv_epochs: int
+        The number of epochs to run for each cross validation fold during grid search if cross validation is specified
+        (i.e. ``cv is not None``). Defaults to ``epochs``.
+    cv: cross-validation generator (e.g. `sklearn.model_selection.KFold`)
+        An object to be used as a cross-validation generator.
     scoring: function
         A scoring function, like ``sklearn.metrics.r2_score``.
     scale: bool
@@ -182,36 +190,39 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
     # import os
     # import psutil
     # process = psutil.Process(os.getpid())
+    cv_epochs = epochs if cv_epochs is None else cv_epochs
+
     # Verbosity for Keras fit().
     keras_verbose = max(0, verbose - 1)
     loss_plotters = {} if plot_losses else None # Dictionary mapping non-optimizer parameter values to loss plotters.
 
-    def train_on_param_set(batch_size, hidden_layer_sizes, param_set):
+    def create_model_from_param_set(param_set, optimizer_params, build_fn):
         """
         TODO: Document this function.
-        :return:
         """
+        model_building_param_set = param_set.copy()
+        model_building_param_set.pop('batch_size', None)
+        hidden_layer_sizes = model_building_param_set.pop('hidden_layer_sizes', None)
+        model = build_fn(input_dim=input_dim, hidden_layer_sizes=hidden_layer_sizes,
+                         output_dim=output_dim, optimizer_params=optimizer_params, **model_building_param_set)
+        return model
+
+    def train_on_param_set(param_set):
+        """
+        TODO: Document this function.
+        """
+        batch_size = param_set.get('batch_size')
         optimizer = param_set.get('optimizer')
         optimizer_params = extract_optimizer_params(optimizer, param_set)
-        # print("optimizer_params:", optimizer_params)
+        model = create_model_from_param_set(param_set, optimizer_params, build_fn)
         non_optimizer_params = extract_non_optimizer_params(optimizer, param_set)
-        # print("non_optimizer_params:", non_optimizer_params)
         non_optimizer_param_vals = tuple(non_optimizer_params.values())
-        # print("non_optimizer_param_vals:", non_optimizer_param_vals)
         # Select the appropriate loss_plotter or create one if needed.
         loss_plotter = loss_plotters.get(non_optimizer_param_vals, None) if plot_losses else None
         if plot_losses and (loss_plotter is None):
             loss_plotter = loss_plotters[non_optimizer_param_vals] = \
-                KerasPlotLosses(epochs, plotting_dir, figure_title_prefix, figure_kwargs, plotting_kwargs) if plot_losses else None
-        # print("id(loss_plotter):", id(loss_plotter))
-        # Build the model.
-        model_building_param_set = param_set.copy()
-        model_building_param_set.pop('batch_size', None)
-        model_building_param_set.pop('hidden_layer_sizes', None)
-        # print("keras_reg_grid_search(), before model build! {} MB".format(process.memory_info().rss / 1024 / 1024))
-        model = build_fn(input_dim=input_dim, hidden_layer_sizes=hidden_layer_sizes,
-                         output_dim=output_dim, optimizer_params=optimizer_params, **model_building_param_set)
-        # print("keras_reg_grid_search(), after model build! {} MB".format(process.memory_info().rss / 1024 / 1024))
+                KerasPlotLosses(epochs, plotting_dir, figure_title_prefix, figure_kwargs,
+                                plotting_kwargs) if plot_losses else None
         score = 0
         n_splits = 0
         if cv is not None:
@@ -228,7 +239,7 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
                     y_scaler.fit(y_train)
                     y_train = y_scaler.transform(y_train)
                     y_test = y_scaler.transform(y_test)
-                model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, verbose=keras_verbose)
+                model.fit(X_train, y_train, epochs=cv_epochs, batch_size=batch_size, verbose=keras_verbose)
                 y_pred = model.predict(X_test)
                 score += scoring(y_test, y_pred)
                 n_splits += 1
@@ -250,33 +261,32 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
                       callbacks=[loss_plotter] if plot_losses else None)
             y_pred = model.predict(X)
             score = scoring(y,y_pred)
-        return model, score
+        return score, batch_size, optimizer_params
 
     input_dim = X.shape[1]
 
-    # print("Keras model input shape: ", X.shape, y.shape)
     # Test a model for each parameter set.
-    param_sets = get_combinations(param_grid)
-    best_model = None
+    param_sets = get_dict_combinations(param_grid)
     best_score = -float('inf')
-    best_batch_size = None
     best_param_set = None
+    best_batch_size = None
+    best_optimizer_params = None
     # Fraction of parameter sets trained with
     frac_param_sets_cmplt = 0.
     # Fraction of parameter sets trained with as of the last print
     frac_param_sets_cmplt_lst_prt = 0.
-    num_chars_prg_bar = 10  # The number of characters within the progress bar.
+    num_chars_prg_bar = 10  # The number of characters within the progress bar
     # Minimum difference in the fraction of parameter sets completed to print
     frac_param_sets_cmplt_min_diff_prt = 1.0/num_chars_prg_bar
+
     for param_set in param_sets:
-        batch_size = param_set.get('batch_size')
-        hidden_layer_sizes = param_set.get('hidden_layer_sizes')
-        model, score = train_on_param_set(batch_size, hidden_layer_sizes, param_set)
+        score, batch_size, optimizer_params = train_on_param_set(param_set)
         if score > best_score:
-            best_model = model
+            # best_model = model
             best_score = score
-            best_batch_size = batch_size
             best_param_set = param_set
+            best_batch_size = batch_size
+            best_optimizer_params = optimizer_params
         if verbose >= 1:
             frac_param_sets_cmplt += 1.0 / len(param_sets)
             if frac_param_sets_cmplt >= frac_param_sets_cmplt_lst_prt + frac_param_sets_cmplt_min_diff_prt:
@@ -285,11 +295,21 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv=Non
                 # TODO: Print over the same line in a multi-platform and reasonably terminal-agnostic way in Python3.
                 print('[{}] Completed {:%} of param sets'
                       .format(prg_bar_inner_str, frac_param_sets_cmplt))
-    # TODO: Train best model on full dataset after cross validation (if `cv is None`, this is unnecessary).
+    # Train the best model on the full dataset.
+    best_model = create_model_from_param_set(best_param_set, best_optimizer_params, build_fn)
+    X_scaled, y_scaled = [None]*2
+    if scale:
+        X_scaler = StandardScaler()
+        y_scaler = StandardScaler()
+        X_scaler.fit(X)
+        X_scaled = X_scaler.transform(X)
+        y_scaler.fit(y)
+        y_scaled = y_scaler.transform(y)
+    best_model.fit(X_scaled, y_scaled, epochs=epochs, batch_size=best_batch_size, verbose=keras_verbose)
     if plot_losses:
         for loss_plotter in loss_plotters.values():
             loss_plotter.save_figure()
-    return best_model, best_score, best_batch_size, best_param_set
+    return best_model, best_score, best_param_set
 
 def keras_convert_optimizer_obj_to_name(optimizer):
     """

@@ -47,6 +47,7 @@ def main():
     from sklearn.metrics import make_scorer, r2_score
     import keras
     import keras.models as ks_models
+    from keras import backend as K
     from machine_learning import create_keras_regressor, keras_reg_grid_search, keras_convert_optimizer_obj_to_name
 
     # Custom utility functions
@@ -78,12 +79,12 @@ def main():
 
     # Machine Learning Settings
     # TODO: Detect if `load_models = False` will throw an error before running. If so, give a clear error message.
-    load_models = True  # Whether or not to load models that have already been created by this program.
+    load_models = True # Whether or not to load models that have already been created by this program.
     # The number of logical processors to use during grid search.
     num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
-    # TODO: Add a parameter to determine whether or not param set occurrences are recorded to secondary storage?
+    # TODO: Add a parameter to determine whether or not param set occurrences are pickled?
     # Whether or not to use cross validation in Keras grid search.
-    keras_use_cv_grd_srch = False # TODO: Make this `True`.
+    keras_use_cv_grd_srch = True
     # The level of verbosity in `keras_reg_grid_search()`.
     keras_grd_srch_verbose = 0
 
@@ -92,17 +93,19 @@ def main():
     # Whether or not to plot analysis plots.
     make_analysis_plots = False
     # Whether or not to plot prediction plots.
-    make_prediction_plots = False
+    make_prediction_plots = True
     # Whether or not to plot loss for Keras neural networks over time during training when not using cross validation.
     # This setting only matters when `keras_use_cv_grd_srch == False`.
     make_keras_loss_plots = False
     # Whether or not to make plots of parameter set occurrences for Keras neural networks.
     # These figures are used to visualize the most successful parameter sets for Keras neural networks.
-    make_keras_param_set_occurrence_plots = True
+    make_keras_param_set_occurrence_plots = False
     # Whether Keras figures will be made for individual assets.
     make_asset_keras_figures = make_keras_loss_plots
-    # Whether figures will be made for individual assets.
-    make_asset_figures = make_analysis_plots or make_prediction_plots or make_asset_keras_figures
+    # Whether figures specific to individual assets will be made for all assets.
+    make_all_assets_figures = make_analysis_plots
+    # Whether figures specific to individual assets will be made for assets selected for model training.
+    make_selected_assets_figures = make_analysis_plots or make_prediction_plots or make_asset_keras_figures
     # Whether non-asset-specific Keras figures will be made.
     make_keras_figures = make_keras_loss_plots or make_keras_param_set_occurrence_plots
     # Whether any figures at all will be created.
@@ -122,7 +125,7 @@ def main():
         os.makedirs(models_dir)
 
     # Parameter Set Occurrences Variables and Paths
-    param_set_occurrences_dir = 'param_set_occurrences'
+    param_set_occurrences_dir = 'param_set_occurrences_keras_128_256'
     if not os.path.exists(param_set_occurrences_dir):
         os.makedirs(param_set_occurrences_dir)
 
@@ -131,8 +134,9 @@ def main():
     # Data Importing
     num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
         load_data(resolution=analysis_data_resolution, date_range=analysis_data_date_range, source=load_source)
-    # Directory Structure Creation (Figures)
-    if make_asset_figures:
+
+    # Directory Structure Creation (Non-asset-specific Figures)
+    if make_all_assets_figures:
         currency_figures_subdirs = ['{}/{}'.format(figures_dir, currency_label.replace(' ', '_'))
                                     for currency_label in currencies_labels]
         for currency_figures_subdir in currency_figures_subdirs:
@@ -143,12 +147,6 @@ def main():
         keras_figures_dir = '{}/{}'.format(figures_dir, 'keras')
         if not os.path.exists(keras_figures_dir):
             os.makedirs(keras_figures_dir)
-    if make_asset_keras_figures:
-        keras_figures_subdirs = ['{}/{}'.format(currency_figures_subdir, 'keras')
-                                 for currency_figures_subdir in currency_figures_subdirs]
-        for keras_figures_subdir in keras_figures_subdirs:
-            if not os.path.exists(keras_figures_subdir):
-                os.makedirs(keras_figures_subdir)
 
     # Value Trends
     if make_analysis_plots:
@@ -213,7 +211,7 @@ def main():
     currencies_labels_and_tickers_to_remove = ["{} ({})".format(currencies_label, currencies_ticker)
                                                for currencies_label, currencies_ticker in
                                                zip(currencies_labels_to_remove, currencies_tickers_to_remove)]
-    print("Removing currencies: {}".format(currencies_labels_and_tickers_to_remove))
+    print("Removing currencies from analysis data: {}".format(currencies_labels_and_tickers_to_remove))
     subset_prices = prices.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
     # subset_currencies_labels = [currency_label for currency_label in currencies_labels
     #                             if currency_label not in currencies_labels_to_remove]
@@ -222,12 +220,27 @@ def main():
     # subset_currencies_labels_and_tickers = subset_prices.columns.values
     subset_num_currencies = len(subset_prices.columns)
     subset_prices_nonan = subset_prices.dropna()
-    print("Beginning and ending {} with data for remaining currencies: {}, {}".
+    print("Beginning and ending {} with data for remaining currencies in analysis data: {}, {}".
           format(analysis_time_unit, subset_prices_nonan.index[0], subset_prices_nonan.index[-1]))
 
     num_non_nan_times = len(subset_prices_nonan)
     print("Considering {} {} of price information for analysis (as many as without NaN values)."
           .format(num_non_nan_times, analysis_time_unit))
+
+    # Directory Structure Creation (Asset-specific Figures)
+    selected_currency_figures_subdirs = ['{}/{}'.format(figures_dir, currency_label.replace(' ', '_'))
+                                         for currency_label in currencies_labels
+                                         if currency_label not in currencies_labels_to_remove]
+    if make_selected_assets_figures:
+        for currency_figures_subdir in selected_currency_figures_subdirs:
+            if not os.path.exists(currency_figures_subdir):
+                os.makedirs(currency_figures_subdir)
+    keras_figures_subdirs = ['{}/{}'.format(currency_figures_subdir, 'keras')
+                             for currency_figures_subdir in selected_currency_figures_subdirs]
+    if make_asset_keras_figures:
+        for keras_figures_subdir in keras_figures_subdirs:
+            if not os.path.exists(keras_figures_subdir):
+                os.makedirs(keras_figures_subdir)
 
     # Find the returns.
     subset_returns = subset_prices_nonan.pct_change()
@@ -342,11 +355,11 @@ def main():
     if model_data_resolution == 'daily':
         window_sizes = np.array([7, 14] + list(range(30, 361, 30))) # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
     else:
-        window_sizes = 24*7*np.array([1, 2])#, 4, 8]) # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months.
+        window_sizes = 24*7*np.array([1])#, 2, 4, 8]) # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months.
         # With just 14 days and 7 cryptocurrencies, we have 14 * 24 * 7 = 2352 features.
         window_sizes = window_sizes[::-1] # User larger to smaller window sizes to catch memory-related errors early.
 
-    # Directory Structure Creation (Keras Optimization Trend Figures)
+    # Directory Structure Creation (Keras Optimization Trend Figures - "Loss Plots")
     if make_asset_keras_figures:
         for keras_figures_subdir in keras_figures_subdirs:
             for window_size in window_sizes:
@@ -430,8 +443,8 @@ def main():
         #                      'model__output_dim': [subset_num_currencies],
         #                      'model__epochs': [1000],
         #                      'model__batch_size': [100]}
-        first_hidden_layer_size_single_asset = 256 # TODO: Make this 256 when done testing.
-        first_hidden_layer_size_collective = 512 # TODO: Make this 512 when done testing.
+        first_hidden_layer_size_single_asset = 128
+        first_hidden_layer_size_collective = 256
         # three_hidden_layers = (first_hidden_layer_size_collective, first_hidden_layer_size_collective // 2,
         #                        first_hidden_layer_size_collective // 4)
         # four_hidden_layers = three_hidden_layers + (first_hidden_layer_size_collective // 8,)
@@ -451,24 +464,24 @@ def main():
                                           first_hidden_layer_size_collective // 16)]
         # hidden_layer_sizes_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 8)]
         keras_params_neural_net = \
-            {'batch_size': [4],#, 8, 12],  # A too large batch size results in device OOMs.
+            {'batch_size': [6, 12, 18],  # A too large batch size results in device OOMs.
              'hidden_layer_sizes': None,
-             'dropout_rate': [0.1],#, 0.2],
+             'dropout_rate': [0.1, 0.2, 0.3],
              'optimizer': [Adam],
              # Parameters for Adam optimizer.
-             'lr': [1e-8],#, 1e-6, 1e-4],
-             'beta_1': [0.8],#, 0.9],
-             'beta_2': [0.95]}#, 0.999]}
+             'lr': [1e-6, 1e-4, 1e-2],
+             'beta_1': [0.8, 0.9],
+             'beta_2': [0.95, 0.999]}
         keras_param_names = list(keras_params_neural_net.keys())
         # The number of epochs to train for in grid search.
         # NOTE: This will likely impact run time much more significantly than `keras_neural_net_epochs` by a factor of
         # the number of parameter combinations in `keras_params_neural_net`, further multiplied by `n_splits` used
         # for cross validation (the `cv` object below) if `keras_use_cv_grd_srch`.
-        keras_neural_net_epochs_grd_srch = 1 # TODO: Make this larger. 25?
+        keras_neural_net_epochs_grd_srch = 200
         keras_neural_net_epochs_grd_srch = min(2, keras_neural_net_epochs_grd_srch) \
             if not keras_use_cv_grd_srch & make_keras_loss_plots else keras_neural_net_epochs_grd_srch
-        # The number of epochs to train for after cross validation.
-        keras_neural_net_epochs = 1 # TODO: Make this larger. 50?
+        # The number of epochs to train for without or after cross validation.
+        keras_neural_net_epochs = 200
         # make_keras_picklable()
         # print(type(KerasRegressor(build_fn=create_keras_model)))
         # from model_saving_loading import save_keras_pipeline, load_keras_pipeline
@@ -478,7 +491,6 @@ def main():
         # save_keras_pipeline(model_neural_net, keras_step_name, model_filepath, pipeline_filepath)
         # loaded_pipeline = load_keras_pipeline(keras_step_name, model_filepath, pipeline_filepath)
         # print(loaded_pipeline)
-
 
         # Linear Models
         # TODO: Ridge (sklearn.linear_model.Ridge) regressor (if variance among price correlations
@@ -557,10 +569,9 @@ def main():
         for currency_index in range(subset_num_currencies):
             currency_label = subset_currencies_labels[currency_index]
             currency_label_no_spaces = currency_label.replace(' ', '_')
-            # TODO: Replace path string formatting with `os.path.join()`.
             currency_models_subdir = '{}/{}'.format(models_dir, currency_label_no_spaces)
             currency_figures_subdir = \
-                '{}/{}'.format(figures_dir, currency_label_no_spaces) if make_asset_figures else None
+                '{}/{}'.format(figures_dir, currency_label_no_spaces) if make_all_assets_figures else None
             keras_figures_subdir = \
                 '{}/{}'.format(currency_figures_subdir, 'keras') if make_asset_keras_figures else None
             keras_figures_window_subdir = \
@@ -573,8 +584,6 @@ def main():
             # Data for only this cryptocurrency.
             X_subset = X[:, currency_index::subset_num_currencies]
             y_subset = y[:, currency_index].reshape(-1, 1)
-            # print(y_subset.shape, y[:, currency_index].shape)
-            # print("X_subset[:5], y_subset[:5]: ", X_subset[:5], y_subset[:5])
 
             # Feature Scaling
             X_subset_scaler = StandardScaler()
@@ -595,21 +604,21 @@ def main():
                     model_to_test = models_to_test[i]
                     param_grid = param_grids[i]
                     param_grid['hidden_layer_sizes'] = hidden_layer_sizes_single_asset
-                    best_batch_size = None
-                    # print("model_to_test, param_set: ", model_to_test, param_set)
                     # Keras needs to be trained differently than scikit-learn models even though Keras models can
                     # be "wrapped" to function as such. This is required (AFAIK) to save them to secondary storage.
                     if model_to_test == keras_model_neural_net:
                         # print("Before keras_reg_grid_search()! {} MB".format(process.memory_info().rss / 1024 / 1024))
-                        model, score, best_batch_size, best_param_set = \
+                        model, score, best_param_set = \
                             keras_reg_grid_search(X_subset, y_subset, build_fn=create_keras_regressor, output_dim=1,
-                                                  param_grid=param_grid, epochs=keras_neural_net_epochs_grd_srch,
-                                                  cv=keras_cv, scoring=r2_score, scale=True, verbose=keras_grd_srch_verbose,
+                                                  param_grid=param_grid, epochs=keras_neural_net_epochs,
+                                                  cv_epochs=keras_neural_net_epochs_grd_srch, cv=keras_cv,
+                                                  scoring=r2_score, scale=True, verbose=keras_grd_srch_verbose,
                                                   plot_losses=make_keras_loss_plots, plotting_dir=keras_figures_window_subdir,
                                                   figure_title_prefix='{} (window size {})'.format(currency_label, window_size),
                                                   figure_kwargs={'figsize':figure_size, 'dpi':figure_dpi})
                         # print("After keras_reg_grid_search()! {} MB".format(process.memory_info().rss / 1024 / 1024))
                         best_param_set['optimizer'] = keras_convert_optimizer_obj_to_name(best_param_set['optimizer'])
+                        print("best_param_set:", best_param_set)
                         param_vals_tup = tuple(best_param_set.values()) + ('single', window_size)
                         num_occurrences = keras_param_sets_occurrences_window.setdefault(param_vals_tup, 0)
                         keras_param_sets_occurrences_window[param_vals_tup] = num_occurrences + 1
@@ -619,24 +628,20 @@ def main():
                         grid_search.fit(X_subset_scaled, y_subset_scaled.ravel())
                         model = grid_search.best_estimator_
                         score = grid_search.best_score_
-                    score_model_batch_size_tuples.append((score, model, best_batch_size))
+                    score_model_batch_size_tuples.append((score, model))
                 time.sleep(1)  # Wait 1 second for printing from GridSearchCV to complete.
                 # Choose the model with the best score.
                 score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
-                best_score = score_model_batch_size_tuples[0][0]
+                score = score_model_batch_size_tuples[0][0]
                 model = score_model_batch_size_tuples[0][1]
-                best_batch_size = score_model_batch_size_tuples[0][2]
-                oth_param_to_disp_str = " and score" if best_batch_size is None else ", score, and batch size"
-                param_vals_to_disp = (model, best_score) if best_batch_size is None else \
-                                     (model, best_score, best_batch_size)
-                print("Best model{} for asset {} and window size {}: {}"
-                      .format(oth_param_to_disp_str, currency_label_and_ticker, window_size, param_vals_to_disp))
-                # Save the model for this window size after fitting to the whole dataset.
+                print("Best model and score for asset {} and window size {}: {}"
+                      .format(currency_label_and_ticker, window_size, (model, score)))
+                # Save the best model for this window size.
                 if type(model) is keras.models.Sequential:
-                    model.fit(X_subset_scaled, y_subset_scaled, epochs=keras_neural_net_epochs,
-                              batch_size=best_batch_size, verbose=0)
+                    # model.fit(X_subset_scaled, y_subset_scaled, epochs=keras_neural_net_epochs,
+                    #           batch_size=best_batch_size, verbose=0)
                     ks_models.save_model(model, model_base_path + '.h5')
-                else: # Model is refit by GridSearchCV.
+                else:
                     with open(model_pickle_path, "wb") as model_outfile:
                         pickle.dump(model, model_outfile)
             else:
@@ -665,14 +670,13 @@ def main():
                 model_to_test = models_to_test[i]
                 param_grid = param_grids[i]
                 param_grid['hidden_layer_sizes'] = hidden_layer_sizes_collective
-                best_batch_size = None
-                # print("model_to_test, param_set: ", model_to_test, param_set)
                 if model_to_test == keras_model_neural_net:
                     # print("Before keras_reg_grid_search()! {} MB".format(process.memory_info().rss / 1024 / 1024))
-                    model, score, best_batch_size, best_param_set = \
+                    model, score, best_param_set = \
                         keras_reg_grid_search(X, y, build_fn=create_keras_regressor, output_dim=subset_num_currencies,
-                                              param_grid=param_grid, epochs=keras_neural_net_epochs_grd_srch,
-                                              cv=keras_cv, scoring=r2_score, scale=True, verbose=keras_grd_srch_verbose,
+                                              param_grid=param_grid, epochs=keras_neural_net_epochs,
+                                              cv_epochs=keras_neural_net_epochs_grd_srch, cv=keras_cv, scoring=r2_score,
+                                              scale=True, verbose=keras_grd_srch_verbose,
                                               plot_losses=make_keras_loss_plots, plotting_dir=keras_figures_dir,
                                               figure_title_prefix='Collective (window size {})'.format(window_size),
                                               figure_kwargs={'figsize': figure_size, 'dpi': figure_dpi})
@@ -681,33 +685,30 @@ def main():
                         pickle.dump(keras_window_size_scores, keras_window_size_scores_outfile)
                     # print("After keras_reg_grid_search()! {} MB".format(process.memory_info().rss / 1024 / 1024))
                     best_param_set['optimizer'] = keras_convert_optimizer_obj_to_name(best_param_set['optimizer'])
+                    print("best_param_set:", best_param_set)
                     param_vals_tup = tuple(best_param_set.values()) + ('all', window_size)
                     num_occurrences = keras_param_sets_occurrences_window.setdefault(param_vals_tup, 0)
                     keras_param_sets_occurrences_window[param_vals_tup] = num_occurrences + 1
                 else:
                     grid_search = GridSearchCV(model_to_test, param_grid, scoring=make_scorer(r2_score),
-                                               cv=cv, n_jobs=num_lgc_prcs_grd_srch)#max(1, round(num_cores/2)))
+                                               cv=cv, n_jobs=num_lgc_prcs_grd_srch)
                     grid_search.fit(X_scaled, y_scaled.ravel())
                     model = grid_search.best_estimator_
                     score = grid_search.best_score_
-                score_model_batch_size_tuples.append((score, model, best_batch_size))
+                score_model_batch_size_tuples.append((score, model))
             time.sleep(1)  # Wait 1 second for printing from GridSearchCV to complete.
             # Choose the model with the best score.
             score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
-            best_score = score_model_batch_size_tuples[0][0]
+            score = score_model_batch_size_tuples[0][0]
             collective_assets_model = score_model_batch_size_tuples[0][1]
-            best_batch_size = score_model_batch_size_tuples[0][2]
-            oth_param_to_disp_str = " and score" if best_batch_size is None else ", score, and batch size"
-            param_vals_to_disp = (collective_assets_model, best_score) if best_batch_size is None else \
-                                 (collective_assets_model, best_score, best_batch_size)
-            print("Best collective model{} for window size {}: {}"
-                  .format(oth_param_to_disp_str, window_size, param_vals_to_disp))
-            # Save the model for this window size after fitting to the whole dataset.
+            print("Best collective model and score for window size {}: {}"
+                  .format(window_size, (collective_assets_model, score)))
+            # Save the best model for this window size.
             if type(collective_assets_model) is keras.models.Sequential:
-                collective_assets_model.fit(X_scaled, y_scaled, epochs=keras_neural_net_epochs,
-                                            batch_size=best_batch_size, verbose=0)
+                # collective_assets_model.fit(X_scaled, y_scaled, epochs=keras_neural_net_epochs,
+                #                             batch_size=best_batch_size, verbose=0)
                 ks_models.save_model(collective_assets_model, model_base_path + '.h5')
-            else: # Model is refit by GridSearchCV.
+            else:
                 with open(model_pickle_path, "wb") as model_outfile:
                     pickle.dump(collective_assets_model, model_outfile)
         else:
@@ -750,7 +751,6 @@ def main():
             collective_assets_model_pred = y_scaler.inverse_transform(collective_assets_model.predict(X_scaled))
 
             ### Plotting Predictions ###
-            # print("Before plotting! {} MB".format(process.memory_info().rss / 1024 / 1024))
             # The colors of lines for various things.
             actual_values_color = 'blue'
             actual_values_label = 'True'
@@ -975,6 +975,9 @@ def main():
                                   dpi=figure_dpi)
             collective_fig.savefig('{}/actual_plus_predictions_{}.png'.format(figures_dir, window_size), dpi=figure_dpi)
         plt.close('all')
+        # Deallocate models to free GPU memory.
+        del model, single_asset_models, collective_assets_model
+        K.clear_session()
         # if make_prediction_plots:
             # print("After plotting! {} MB".format(process.memory_info().rss / 1024 / 1024))
 
@@ -1012,62 +1015,7 @@ def main():
         plt.xticks(rotation=x_ticks_rotation_amt, fontsize=6)
         plt.title('Parameter set occurrences for window size {}'.format(keras_best_window_size))
         plt.tight_layout()
-        plt.savefig('{}/param_set_occurrences.png'.format(keras_figures_dir), dpi=figure_dpi)
-
-    # TODO: Remove these lines if unneeded.
-    # # Visualize how many of the best Keras models were produced in aggregate
-    # # for all unique values of each parameter.
-    # print("Before param occurrences figure creation! {} MB".format(process.memory_info().rss / 1024 / 1024))
-    # keras_unique_param_sets_tuples = list(keras_param_sets_occurrences.keys())
-    # col_names_to_add = [asset_col_str, window_size_col_str]  # Order matters here.
-    # index = pd.MultiIndex.from_tuples(keras_unique_param_sets_tuples, names=keras_param_names + col_names_to_add)
-    # # print("index:", index)
-    # keras_param_sets_occurrences_series = pd.Series(list(keras_param_sets_occurrences.values()), index=index)
-    # # print("keras_param_sets_occurrences_series:", keras_param_sets_occurrences_series)
-    # num_occurrences_str = 'num_occurrences'
-    # keras_param_sets_occurrences_frame = keras_param_sets_occurrences_series.to_frame(num_occurrences_str)
-    # # print("keras_param_sets_occurrences_frame:", keras_param_sets_occurrences_frame)
-    # keras_param_sets_occurrences_frame.reset_index(inplace=True)
-    # param_occurrences_fig_size = (6, 6)
-    # num_frame_cols = len(keras_param_sets_occurrences_frame.columns)
-    # col_names_to_exclude = [num_occurrences_str, window_size_col_str]
-    # num_cols_collective_fig = 2
-    # num_rows_collective_fig = int(np.ceil(num_frame_cols / num_cols_collective_fig)) - \
-    #                           int(math.ceil(len(col_names_to_exclude) / num_cols_collective_fig))
-    # collective_fig_figsize = tuple(h_w * n_r_c for h_w, n_r_c in
-    #                                zip(param_occurrences_fig_size,
-    #                                    (num_rows_collective_fig, num_cols_collective_fig)))
-    # collective_fig = plt.figure(figsize=collective_fig_figsize)
-    # collective_fig_num = collective_fig.number
-    # for ind_col_ind, ind_col_name in enumerate(keras_param_sets_occurrences_frame.columns):
-    #     if ind_col_name in col_names_to_exclude:
-    #         continue
-    #     agg_data = (keras_param_sets_occurrences_frame.groupby(ind_col_name)[num_occurrences_str]).sum()
-    #     x_ticks_rotation_amt = 15 if ind_col_name == 'hidden_layer_sizes' else 'horizontal'
-    #     # Collective plot
-    #     plt.figure(collective_fig_num)
-    #     collective_ax_current = collective_fig.add_subplot(num_rows_collective_fig, num_cols_collective_fig,
-    #                                                        ind_col_ind + 1)
-    #     agg_data.plot(x=ind_col_name, y=num_occurrences_str, kind='bar', ax=collective_ax_current)
-    #     plt.xticks(rotation=x_ticks_rotation_amt, fontsize=6)
-    #     # Format y-axis labels as integers.
-    #     unique_num_occurrences = np.unique(agg_data.values)
-    #     # Credit to https://stackoverflow.com/a/12051323/5449970 for this little code snippet.
-    #     plt.yticks(list(range(int(math.floor(min(unique_num_occurrences))),
-    #                           int(math.ceil(max(unique_num_occurrences)) + 1))))
-    #     plt.ylabel('# Occurrences')
-    #     plt.tight_layout()
-    #     # Individual plot
-    #     indiv_fig, indiv_fig_ax = plt.subplots(figsize=param_occurrences_fig_size)
-    #     agg_data.plot(x=ind_col_name, y=num_occurrences_str, kind='bar', ax=indiv_fig_ax)
-    #     plt.xticks(rotation=x_ticks_rotation_amt, fontsize=6)
-    #     plt.yticks(list(range(int(math.floor(min(unique_num_occurrences))),
-    #                           int(math.ceil(max(unique_num_occurrences)) + 1))))
-    #     plt.ylabel('# Occurrences')
-    #     plt.tight_layout()
-    #     indiv_fig.savefig('{}/{}.png'.format(keras_param_occurrences_figures_dir, ind_col_name))
-    # collective_fig.savefig('{}/{}.png'.format(keras_param_occurrences_figures_dir, 'collective'))
-    # print("After param occurrences figure creation! {} MB".format(process.memory_info().rss / 1024 / 1024))
+        plt.savefig('{}/param_set_occurrences_keras_128_256.png'.format(keras_figures_dir), dpi=figure_dpi)
 
 if __name__ == '__main__':
     main()
