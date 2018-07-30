@@ -79,7 +79,7 @@ def main():
 
     # Machine Learning Settings
     # TODO: Detect if `load_models = False` will throw an error before running. If so, give a clear error message.
-    load_models = True # Whether or not to load models that have already been created by this program.
+    load_models = False # Whether or not to load models that have already been created by this program.
     # The number of logical processors to use during grid search.
     num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
     # TODO: Add a parameter to determine whether or not param set occurrences are pickled?
@@ -93,7 +93,7 @@ def main():
     # Whether or not to plot analysis plots.
     make_analysis_plots = False
     # Whether or not to plot prediction plots.
-    make_prediction_plots = True
+    make_prediction_plots = False
     # Whether or not to plot loss for Keras neural networks over time during training when not using cross validation.
     # This setting only matters when `keras_use_cv_grd_srch == False`.
     make_keras_loss_plots = False
@@ -355,7 +355,7 @@ def main():
     if model_data_resolution == 'daily':
         window_sizes = np.array([7, 14] + list(range(30, 361, 30))) # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
     else:
-        window_sizes = 24*7*np.array([1])#, 2, 4, 8]) # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months.
+        window_sizes = 24*7*np.array([1, 2, 4, 8]) # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months.
         # With just 14 days and 7 cryptocurrencies, we have 14 * 24 * 7 = 2352 features.
         window_sizes = window_sizes[::-1] # User larger to smaller window sizes to catch memory-related errors early.
 
@@ -443,8 +443,8 @@ def main():
         #                      'model__output_dim': [subset_num_currencies],
         #                      'model__epochs': [1000],
         #                      'model__batch_size': [100]}
-        first_hidden_layer_size_single_asset = 128
-        first_hidden_layer_size_collective = 256
+        first_hidden_layer_size_single_asset = 256
+        first_hidden_layer_size_collective = 512
         # three_hidden_layers = (first_hidden_layer_size_collective, first_hidden_layer_size_collective // 2,
         #                        first_hidden_layer_size_collective // 4)
         # four_hidden_layers = three_hidden_layers + (first_hidden_layer_size_collective // 8,)
@@ -477,11 +477,11 @@ def main():
         # NOTE: This will likely impact run time much more significantly than `keras_neural_net_epochs` by a factor of
         # the number of parameter combinations in `keras_params_neural_net`, further multiplied by `n_splits` used
         # for cross validation (the `cv` object below) if `keras_use_cv_grd_srch`.
-        keras_neural_net_epochs_grd_srch = 200
+        keras_neural_net_epochs_grd_srch = 1
         keras_neural_net_epochs_grd_srch = min(2, keras_neural_net_epochs_grd_srch) \
             if not keras_use_cv_grd_srch & make_keras_loss_plots else keras_neural_net_epochs_grd_srch
         # The number of epochs to train for without or after cross validation.
-        keras_neural_net_epochs = 200
+        keras_neural_net_epochs = 1
         # make_keras_picklable()
         # print(type(KerasRegressor(build_fn=create_keras_model)))
         # from model_saving_loading import save_keras_pipeline, load_keras_pipeline
@@ -564,7 +564,10 @@ def main():
         ### Model Training ###
 
         # Single Asset Model (consider only windows of values for one asset each (disallows learning of correlations))
-        single_asset_models = []
+        # Store paths and types of models to load, predict with, and delete each model to save memory.
+        single_asset_models_paths, single_asset_models_types  = [], []
+        single_asset_models = [None]*subset_num_currencies
+
         # Build a model for each cryptocurrency.
         for currency_index in range(subset_num_currencies):
             currency_label = subset_currencies_labels[currency_index]
@@ -580,6 +583,7 @@ def main():
             # Paths
             model_base_path = "{}/{}_model_{}".format(currency_models_subdir, currency_label_no_spaces, window_size)
             model_pickle_path = "{}.pkl".format(model_base_path)
+            model_path, model_type = (None, None)
 
             # Data for only this cryptocurrency.
             X_subset = X[:, currency_index::subset_num_currencies]
@@ -597,7 +601,8 @@ def main():
                     .format(currency_label_and_ticker, window_size, model_time_unit))
 
                 # Tuples of scores, the corresponding models, and the best batch sizes for Keras models.
-                score_model_batch_size_tuples = []
+                # score_model_batch_size_tuples = []
+                best_score, best_model = (-np.inf, None)
 
                 # Create the single asset models.
                 for i in range(len(models_to_test)):
@@ -628,32 +633,45 @@ def main():
                         grid_search.fit(X_subset_scaled, y_subset_scaled.ravel())
                         model = grid_search.best_estimator_
                         score = grid_search.best_score_
-                    score_model_batch_size_tuples.append((score, model))
+                    best_model = model if score > best_score else best_model
+                    best_score = score if score > best_score else best_score
+                    # score_model_batch_size_tuples.append((score, model))
                 time.sleep(1)  # Wait 1 second for printing from GridSearchCV to complete.
                 # Choose the model with the best score.
-                score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
-                score = score_model_batch_size_tuples[0][0]
-                model = score_model_batch_size_tuples[0][1]
+                # score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
+                # score = score_model_batch_size_tuples[0][0]
+                # model = score_model_batch_size_tuples[0][1]
                 print("Best model and score for asset {} and window size {}: {}"
-                      .format(currency_label_and_ticker, window_size, (model, score)))
+                      .format(currency_label_and_ticker, window_size, (best_model, best_score)))
                 # Save the best model for this window size.
-                if type(model) is keras.models.Sequential:
+                model_type = type(best_model)
+                if type(best_model) is keras.models.Sequential:
                     # model.fit(X_subset_scaled, y_subset_scaled, epochs=keras_neural_net_epochs,
                     #           batch_size=best_batch_size, verbose=0)
-                    ks_models.save_model(model, model_base_path + '.h5')
+                    model_path = model_base_path + '.h5'
+                    ks_models.save_model(best_model, model_path)
                 else:
+                    model_path = model_pickle_path
                     with open(model_pickle_path, "wb") as model_outfile:
-                        pickle.dump(model, model_outfile)
+                        pickle.dump(best_model, model_outfile)
             else:
                 # Model Loading
                 try: # Try to load the neural network model first (runs on GPUs).
                     model = ks_models.load_model(model_base_path + '.h5')
+                    model_path = model_base_path + '.h5'
+                # if os.path.exists(model_base_path + '.h5'):
+                #     model_path, model_type = (model_base_path + '.h5', keras.models.Sequential)
+                # elif os.path.exists(model_pickle_path):
+                #     model_path = model_pickle_path
                 except OSError:
+                    model_path = model_pickle_path
                     with open(model_pickle_path, "rb") as model_infile:
                         model = pickle.load(model_infile)
-            single_asset_models.append(model)
+            single_asset_models_paths.append(model_path)
+            single_asset_models_types.append(type(model))
 
         # Collective Model (consider windows of values for all assets)
+        collective_assets_model_path, collective_assets_model_type = (None, None)
         collective_assets_model = None
         model_base_path = "{}/model_{}".format(models_dir, window_size)
         model_pickle_path = "{}.pkl".format(model_base_path)
@@ -663,7 +681,8 @@ def main():
                   "with a window size of {} {}.".format(window_size, model_time_unit))
 
             # Tuples of scores and the corresponding models (along with the best batch sizes for Keras models)
-            score_model_batch_size_tuples = []
+            # score_model_batch_size_tuples = []
+            best_score, best_model = (-np.inf, None)
 
             # Create the models.
             for i in range(len(models_to_test)):
@@ -695,34 +714,51 @@ def main():
                     grid_search.fit(X_scaled, y_scaled.ravel())
                     model = grid_search.best_estimator_
                     score = grid_search.best_score_
-                score_model_batch_size_tuples.append((score, model))
+                best_model = model if score > best_score else best_model
+                best_score = score if score > best_score else best_score
+                # score_model_batch_size_tuples.append((score, model))
             time.sleep(1)  # Wait 1 second for printing from GridSearchCV to complete.
             # Choose the model with the best score.
-            score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
-            score = score_model_batch_size_tuples[0][0]
-            collective_assets_model = score_model_batch_size_tuples[0][1]
+            # score_model_batch_size_tuples.sort(key=lambda tup: tup[0], reverse=True)
+            # score = score_model_batch_size_tuples[0][0]
+            # collective_assets_model = score_model_batch_size_tuples[0][1]
             print("Best collective model and score for window size {}: {}"
-                  .format(window_size, (collective_assets_model, score)))
+                  .format(window_size, (best_model, best_score)))
             # Save the best model for this window size.
-            if type(collective_assets_model) is keras.models.Sequential:
+            collective_assets_model_type = type(best_model)
+            if type(best_model) is keras.models.Sequential:
                 # collective_assets_model.fit(X_scaled, y_scaled, epochs=keras_neural_net_epochs,
                 #                             batch_size=best_batch_size, verbose=0)
-                ks_models.save_model(collective_assets_model, model_base_path + '.h5')
+                collective_assets_model_path = model_base_path + '.h5'
+                ks_models.save_model(best_model, model_base_path + '.h5')
             else:
+                collective_assets_model_path = model_pickle_path
                 with open(model_pickle_path, "wb") as model_outfile:
-                    pickle.dump(collective_assets_model, model_outfile)
+                    pickle.dump(best_model, model_outfile)
         else:
             # Model Loading
             try: # Try to load the neural network model first (runs on GPUs).
                 collective_assets_model = ks_models.load_model(model_base_path + '.h5')
+                collective_assets_model_path = model_base_path + '.h5'
+                # if os.path.exists(model_base_path + '.h5'):
+            #     collective_assets_model_path = model_base_path + '.h5'
+            # elif os.path.exists(model_pickle_path):
+            #     collective_assets_model_path = model_pickle_path
             except OSError:
+                collective_assets_model_path = model_pickle_path
                 with open(model_pickle_path, "rb") as model_infile:
                     collective_assets_model = pickle.load(model_infile)
+            collective_assets_model_type = type(collective_assets_model)
 
         # Save the Keras parameter set occurrence counts for this window size.
         if not load_models:
             with open(keras_param_set_occurrences_pickle_path, "wb") as param_set_occurrences_outfile:
                 pickle.dump(keras_param_sets_occurrences_window, param_set_occurrences_outfile)
+
+        # print("single_asset_models_paths:", single_asset_models_paths)
+        # print("single_asset_models_types:", single_asset_models_types)
+        # print("collective_assets_model_path:", collective_assets_model_path)
+        # print("collective_assets_model_type:", collective_assets_model_type)
 
         # Validation and Visualization (for each window size)
         if make_prediction_plots:
@@ -734,6 +770,8 @@ def main():
                 Returns predictions for the separate single asset models in the format of
                 predictions from the collective assets model.
 
+                **NOTE: Be sure the models are loaded first!**
+
                 Parameters
                 ----------
                 X: numpy.ndarray
@@ -741,14 +779,63 @@ def main():
                 """
                 single_asset_models_pred = np.empty((len(X), subset_num_currencies), dtype=np.float64)
                 for currency_index in range(subset_num_currencies):
-                    single_asset_models_pred[:, currency_index] = \
-                        single_asset_models[currency_index].predict(X[:, currency_index::subset_num_currencies]).flatten()
+                    single_asset_models_pred[:, currency_index] = single_asset_models[currency_index].\
+                        predict(X[:, currency_index::subset_num_currencies]).flatten()
+                        # single_asset_models[currency_index].predict(X[:, currency_index::subset_num_currencies]).flatten()
                 return single_asset_models_pred
 
+            def load_model(model_type, model_path):
+                """
+                TODO: Document this.
+                Parameters
+                ----------
+                """
+                if model_type is keras.models.Sequential:
+                    model = ks_models.load_model(model_path)
+                else:
+                    with open(model_path, "rb") as model_infile:
+                        model = pickle.load(model_infile)
+                return model
+
+            def load_single_asset_models():
+                """"
+                TODO: Document this.
+                Parameters
+                ----------
+                """
+                for currency_index in range(subset_num_currencies):
+                    single_asset_models[currency_index] = \
+                        load_model(single_asset_models_types[currency_index], single_asset_models_paths[currency_index])
+                    # model_path = single_asset_models_paths[currency_index]
+                    # if single_asset_models_types[currency_index] is keras.models.Sequential:
+                    #     model = ks_models.load_model(model_path)
+                    # else:
+                    #     with open(model_path, "rb") as model_infile:
+                    #         model = pickle.load(model_infile)
+                    # single_asset_models[currency_index] = model
+
+            def load_collective_assets_model():
+                """"
+                TODO: Document this.
+                Parameters
+                ----------
+                """
+                nonlocal collective_assets_model
+                collective_assets_model = load_model(collective_assets_model_type, collective_assets_model_path)
+
+            load_single_asset_models()
             single_asset_models_pred = y_scaler.inverse_transform(single_asset_models_predict(X_scaled))
+            single_asset_models = [None]*len(single_asset_models) # Remove the models from memory.
 
             # Collective Model Predictions
+            # if collective_assets_model_type is keras.models.Sequential:
+            #     collective_assets_model = ks_models.load_model(collective_assets_model_path)
+            # else:
+            #     with open(collective_assets_model_path, "rb") as model_infile:
+            #         collective_assets_model = pickle.load(model_infile)
+            load_collective_assets_model()
             collective_assets_model_pred = y_scaler.inverse_transform(collective_assets_model.predict(X_scaled))
+            collective_assets_model = None
 
             ### Plotting Predictions ###
             # The colors of lines for various things.
@@ -760,6 +847,8 @@ def main():
             ml_model_collective_label = 'ML Model (Collective Predictor)'
             monte_carlo_color = 'green'
             monte_carlo_label = 'Monte Carlo AVG'
+
+            # print("Plotting validation figures!")
 
             # Plot the actual values along with the predictions. They should overlap.
             subset_num_cols = 2
@@ -810,60 +899,70 @@ def main():
                                    .format(figures_dir, window_size), dpi=figure_dpi)
             collective_fig.clf()
 
+            # print("Getting predictions!")
+
             # Get the models' predictions for the rest of 2017 and 2018.
+            # TODO: Make this a function that is run for both single asset models and the collective assets model.
+
             # Single Asset Model Predictions
+            load_single_asset_models()
             single_asset_models_extrapolation_X = \
                 np.zeros((model_num_extrapolation_times, subset_num_currencies * window_size), dtype=np.float64)
             single_asset_models_extrapolation_y = \
                 np.zeros((model_num_extrapolation_times, subset_num_currencies), dtype=np.float64)
-            # Collective Model Predictions
-            collective_assets_model_extrapolation_X = \
-                np.zeros((model_num_extrapolation_times, subset_num_currencies * window_size), dtype=np.float64)
-            collective_assets_model_extrapolation_y = \
-                np.zeros((model_num_extrapolation_times, subset_num_currencies), dtype=np.float64)
-
             # First `window_size` windows contain known values.
             given_prices = subset_prices_nonan.values[-window_size:].flatten()
-            # Single Asset Model Predictions
             single_asset_models_extrapolation_X[0] = given_prices
             single_asset_models_extrapolation_y[0] = \
                 single_asset_models_predict(single_asset_models_extrapolation_X[0].reshape(1, -1))
-            # Collective Model Predictions
-            collective_assets_model_extrapolation_X[0] = given_prices
-            collective_assets_model_extrapolation_y[0] = \
-                collective_assets_model.predict(collective_assets_model_extrapolation_X[0].reshape(1, -1))
             for currency_index in range(1, window_size):
                 given_prices = subset_prices_nonan.values[-window_size + currency_index:].flatten()
-                # Single Asset Model Predictions
                 single_asset_models_previous_predicted_prices = \
                     single_asset_models_extrapolation_y[:currency_index].flatten()
                 single_asset_models_extrapolation_X[currency_index] = \
                     np.concatenate((given_prices, single_asset_models_previous_predicted_prices))
                 single_asset_models_extrapolation_y[currency_index] = \
                     single_asset_models_predict(single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten()
-                # Collective Model Predictions
-                collective_assets_model_previous_predicted_prices = \
-                    collective_assets_model_extrapolation_y[:currency_index].flatten()
-                collective_assets_model_extrapolation_X[currency_index] = \
-                    np.concatenate((given_prices, collective_assets_model_previous_predicted_prices))
-                collective_assets_model_extrapolation_y[currency_index] = \
-                    collective_assets_model.predict(collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten()
             # Remaining windows contain only predicted values (predicting based on previous predictions).
             for currency_index in range(window_size, model_num_extrapolation_times):
-                # Single Asset Model Predictions
                 single_asset_models_previous_predicted_prices = \
                     single_asset_models_extrapolation_y[currency_index - window_size:currency_index].flatten()
                 single_asset_models_extrapolation_X[currency_index] = \
                     single_asset_models_previous_predicted_prices
                 single_asset_models_extrapolation_y[currency_index] = \
                     single_asset_models_predict(single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten()
-                # Collective Model Predictions
+            single_asset_models = [None] * len(single_asset_models)
+
+            # Collective Assets Model Predictions
+            load_collective_assets_model()
+            collective_assets_model_extrapolation_X = \
+                np.zeros((model_num_extrapolation_times, subset_num_currencies * window_size), dtype=np.float64)
+            collective_assets_model_extrapolation_y = \
+                np.zeros((model_num_extrapolation_times, subset_num_currencies), dtype=np.float64)
+            given_prices = subset_prices_nonan.values[-window_size:].flatten()
+            collective_assets_model_extrapolation_X[0] = given_prices
+            collective_assets_model_extrapolation_y[0] = \
+                collective_assets_model.predict(collective_assets_model_extrapolation_X[0].reshape(1, -1))
+            for currency_index in range(1, window_size):
+                given_prices = subset_prices_nonan.values[-window_size + currency_index:].flatten()
+                collective_assets_model_previous_predicted_prices = \
+                    collective_assets_model_extrapolation_y[:currency_index].flatten()
+                collective_assets_model_extrapolation_X[currency_index] = \
+                    np.concatenate((given_prices, collective_assets_model_previous_predicted_prices))
+                collective_assets_model_extrapolation_y[currency_index] = \
+                    collective_assets_model.predict(
+                        collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten()
+            for currency_index in range(window_size, model_num_extrapolation_times):
                 collective_assets_model_previous_predicted_prices = \
                     collective_assets_model_extrapolation_y[currency_index - window_size:currency_index].flatten()
                 collective_assets_model_extrapolation_X[currency_index] = \
                     collective_assets_model_previous_predicted_prices
                 collective_assets_model_extrapolation_y[currency_index] = \
-                    collective_assets_model.predict(collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten()
+                    collective_assets_model.predict(
+                        collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten()
+            collective_assets_model = None
+
+            # print("Plotting prediction figures!")
 
             # Plot predictions for the rest of 2017 and 2018.
             for currency_index in range(subset_num_currencies):
@@ -918,7 +1017,9 @@ def main():
                                    .format(figures_dir, window_size), dpi=figure_dpi)
             collective_fig.clf()
 
-            # Plot the predicitons for the rest of 2017 and 2018 along with the actual values for the date range used.
+            # print("Plotting predictions and actual values together!")
+
+            # Plot the predictions for the rest of 2017 and 2018 along with the actual values for the date range used.
             for currency_index in range(subset_num_currencies):
                 currency_label = subset_currencies_labels[currency_index]
                 currency_label_no_spaces = currency_label.replace(' ', '_')
@@ -976,12 +1077,14 @@ def main():
             collective_fig.savefig('{}/actual_plus_predictions_{}.png'.format(figures_dir, window_size), dpi=figure_dpi)
         plt.close('all')
         # Deallocate models to free GPU memory.
-        del model, single_asset_models, collective_assets_model
+        del model, collective_assets_model
         K.clear_session()
         # if make_prediction_plots:
             # print("After plotting! {} MB".format(process.memory_info().rss / 1024 / 1024))
 
     if make_keras_param_set_occurrence_plots:
+        # print("Making Keras param set occurrence plots!")
+
         with open(keras_window_size_scores_pickle_path, 'rb') as keras_window_size_scores_infile:
             keras_window_size_scores = pickle.load(keras_window_size_scores_infile)
         keras_best_window_size = max(keras_window_size_scores, key=keras_window_size_scores.get)
