@@ -91,15 +91,15 @@ def main():
     # Plotting Settings
     # TODO: Ensure this logic works even if using no Keras models.
     # Whether or not to plot analysis plots.
-    make_analysis_plots = False
+    make_analysis_plots = True
     # Whether or not to plot prediction plots.
-    make_prediction_plots = False
+    make_prediction_plots = True
     # Whether or not to plot loss for Keras neural networks over time during training when not using cross validation.
     # This setting only matters when `keras_use_cv_grd_srch == False`.
     make_keras_loss_plots = False
     # Whether or not to make plots of parameter set occurrences for Keras neural networks.
     # These figures are used to visualize the most successful parameter sets for Keras neural networks.
-    make_keras_param_set_occurrence_plots = False
+    make_keras_param_set_occurrence_plots = True
     # Whether Keras figures will be made for individual assets.
     make_asset_keras_figures = make_keras_loss_plots
     # Whether figures specific to individual assets will be made for all assets.
@@ -352,12 +352,12 @@ def main():
     # We will predict closing prices based on these numbers of days preceding the date of prediction.
     # The max `window_size` is `num_non_nan_times`, but even reasonably close values may result in poor models or even
     # training failures (errors) due to small or even empty test sets, respectively, during cross validation.
-    if model_data_resolution == 'daily':
-        window_sizes = np.array([7, 14] + list(range(30, 361, 30))) # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
-    else:
-        window_sizes = 24*7*np.array([1, 2, 4, 8]) # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months.
+    if model_data_resolution == 'daily': # Window sizes in days - 1 week, 2 weeks, and 1 to 12 months.
+        window_sizes = np.array([7, 14] + list(range(30, 361, 30)))
+    else: # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months.
         # With just 14 days and 7 cryptocurrencies, we have 14 * 24 * 7 = 2352 features.
-        window_sizes = window_sizes[::-1] # User larger to smaller window sizes to catch memory-related errors early.
+        window_sizes = 24*7*np.array([1, 2, 4, 8])
+    window_sizes = window_sizes[::-1] # User larger to smaller window sizes to catch memory-related errors early.
 
     # Directory Structure Creation (Keras Optimization Trend Figures - "Loss Plots")
     if make_asset_keras_figures:
@@ -464,7 +464,7 @@ def main():
                                           first_hidden_layer_size_collective // 16)]
         # hidden_layer_sizes_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 8)]
         keras_params_neural_net = \
-            {'batch_size': [6, 12, 18],  # A too large batch size results in device OOMs.
+            {'batch_size': [16, 24, 32],  # A too large batch size results in device OOMs.
              'hidden_layer_sizes': None,
              'dropout_rate': [0.1, 0.2, 0.3],
              'optimizer': [Adam],
@@ -477,11 +477,11 @@ def main():
         # NOTE: This will likely impact run time much more significantly than `keras_neural_net_epochs` by a factor of
         # the number of parameter combinations in `keras_params_neural_net`, further multiplied by `n_splits` used
         # for cross validation (the `cv` object below) if `keras_use_cv_grd_srch`.
-        keras_neural_net_epochs_grd_srch = 1
+        keras_neural_net_epochs_grd_srch = 400
         keras_neural_net_epochs_grd_srch = min(2, keras_neural_net_epochs_grd_srch) \
             if not keras_use_cv_grd_srch & make_keras_loss_plots else keras_neural_net_epochs_grd_srch
         # The number of epochs to train for without or after cross validation.
-        keras_neural_net_epochs = 1
+        keras_neural_net_epochs = 400
         # make_keras_picklable()
         # print(type(KerasRegressor(build_fn=create_keras_model)))
         # from model_saving_loading import save_keras_pipeline, load_keras_pipeline
@@ -644,7 +644,6 @@ def main():
                 print("Best model and score for asset {} and window size {}: {}"
                       .format(currency_label_and_ticker, window_size, (best_model, best_score)))
                 # Save the best model for this window size.
-                model_type = type(best_model)
                 if type(best_model) is keras.models.Sequential:
                     # model.fit(X_subset_scaled, y_subset_scaled, epochs=keras_neural_net_epochs,
                     #           batch_size=best_batch_size, verbose=0)
@@ -657,7 +656,7 @@ def main():
             else:
                 # Model Loading
                 try: # Try to load the neural network model first (runs on GPUs).
-                    model = ks_models.load_model(model_base_path + '.h5')
+                    best_model = ks_models.load_model(model_base_path + '.h5')
                     model_path = model_base_path + '.h5'
                 # if os.path.exists(model_base_path + '.h5'):
                 #     model_path, model_type = (model_base_path + '.h5', keras.models.Sequential)
@@ -666,9 +665,11 @@ def main():
                 except OSError:
                     model_path = model_pickle_path
                     with open(model_pickle_path, "rb") as model_infile:
-                        model = pickle.load(model_infile)
+                        best_model = pickle.load(model_infile)
             single_asset_models_paths.append(model_path)
-            single_asset_models_types.append(type(model))
+            single_asset_models_types.append(type(best_model))
+        best_model = None
+        K.clear_session()  # Deallocate models to free GPU memory.
 
         # Collective Model (consider windows of values for all assets)
         collective_assets_model_path, collective_assets_model_type = (None, None)
@@ -738,7 +739,7 @@ def main():
         else:
             # Model Loading
             try: # Try to load the neural network model first (runs on GPUs).
-                collective_assets_model = ks_models.load_model(model_base_path + '.h5')
+                best_model = ks_models.load_model(model_base_path + '.h5')
                 collective_assets_model_path = model_base_path + '.h5'
                 # if os.path.exists(model_base_path + '.h5'):
             #     collective_assets_model_path = model_base_path + '.h5'
@@ -747,8 +748,10 @@ def main():
             except OSError:
                 collective_assets_model_path = model_pickle_path
                 with open(model_pickle_path, "rb") as model_infile:
-                    collective_assets_model = pickle.load(model_infile)
-            collective_assets_model_type = type(collective_assets_model)
+                    best_model = pickle.load(model_infile)
+            collective_assets_model_type = type(best_model)
+        best_model = None
+        K.clear_session()
 
         # Save the Keras parameter set occurrence counts for this window size.
         if not load_models:
@@ -826,6 +829,7 @@ def main():
             load_single_asset_models()
             single_asset_models_pred = y_scaler.inverse_transform(single_asset_models_predict(X_scaled))
             single_asset_models = [None]*len(single_asset_models) # Remove the models from memory.
+            K.clear_session()
 
             # Collective Model Predictions
             # if collective_assets_model_type is keras.models.Sequential:
@@ -836,6 +840,7 @@ def main():
             load_collective_assets_model()
             collective_assets_model_pred = y_scaler.inverse_transform(collective_assets_model.predict(X_scaled))
             collective_assets_model = None
+            K.clear_session()
 
             ### Plotting Predictions ###
             # The colors of lines for various things.
@@ -932,6 +937,7 @@ def main():
                 single_asset_models_extrapolation_y[currency_index] = \
                     single_asset_models_predict(single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten()
             single_asset_models = [None] * len(single_asset_models)
+            K.clear_session()
 
             # Collective Assets Model Predictions
             load_collective_assets_model()
@@ -961,6 +967,7 @@ def main():
                     collective_assets_model.predict(
                         collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten()
             collective_assets_model = None
+            K.clear_session()
 
             # print("Plotting prediction figures!")
 
@@ -1076,9 +1083,6 @@ def main():
                                   dpi=figure_dpi)
             collective_fig.savefig('{}/actual_plus_predictions_{}.png'.format(figures_dir, window_size), dpi=figure_dpi)
         plt.close('all')
-        # Deallocate models to free GPU memory.
-        del model, collective_assets_model
-        K.clear_session()
         # if make_prediction_plots:
             # print("After plotting! {} MB".format(process.memory_info().rss / 1024 / 1024))
 

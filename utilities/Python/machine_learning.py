@@ -13,6 +13,7 @@ from sklearn.metrics import r2_score
 import tensorflow as tf
 
 import keras
+from keras import backend as K
 from keras.backend.tensorflow_backend import set_session
 from keras.models import Sequential
 from keras.layers import Dense, Dropout
@@ -261,6 +262,8 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv_epo
                       callbacks=[loss_plotter] if plot_losses else None)
             y_pred = model.predict(X)
             score = scoring(y,y_pred)
+        del model
+        K.clear_session()  # Deallocate models to free GPU memory.
         return score, batch_size, optimizer_params
 
     input_dim = X.shape[1]
