@@ -2,10 +2,73 @@ import re
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine
+from files import line_prepend
+from datetime import datetime as dt
+import os
 
 # SQLAlchemy for connecting to a local MySQL instance.
 # mysqlconnector
 engine = create_engine('mysql+pymysql://john:Iwbicvi1994mysql@localhost:3306/cryptocurrencies', echo=False)
+
+data_dir = '../data'
+
+hourly_data_time_format = '%Y-%m-%d %I-%p'
+
+def data_path_to_rel_path(data_filepath):
+    """
+    Convert a path in the context of the data directory to a path relative to this file. For example,
+    data_path_to_rel_path('my_data.csv') may return 'data/my_data.csv' if the 'data' directory is below this file.
+    """
+    return '{}/{}'.format(data_dir, data_filepath)
+
+def format_data():
+    """
+    Some cryptocurrency data from http://www.cryptodatadownload.com/ is only available in equivalent
+    value in Bitcoin, so we must convert to USD equivalent.
+    """
+    # Map filenames of data in BTC equivalent to filenames denoting USD values.
+    filepath_conversions = {'hourly/Poloniex_XEMBTC_1h.csv': 'hourly/Poloniex_XEMUSD_1h.csv'}
+    filepath_conversions = {data_path_to_rel_path(k): data_path_to_rel_path(v) for k, v in filepath_conversions.items()}
+    value_cols = ['Open', 'High', 'Low', 'Close']
+    BTC_USD_df = pd.read_csv(r"{}/hourly/Gdax_BTCUSD_1h.csv".format(data_dir), header=1)
+    BTC_USD_df = set_str_date_col_to_datetime_index_hourly(BTC_USD_df)
+    for in_filepath, out_filepath in filepath_conversions.items():
+        df = pd.read_csv('{}/{}'.format(data_dir, in_filepath), header=1)
+        df = set_str_date_col_to_datetime_index_hourly(df)
+        # Select only the dates common to both DataFrames.
+        min_max_time = min((df.index[0], BTC_USD_df.index[0]))
+        max_min_times = max((df.index[-1], BTC_USD_df.index[-1]))
+        USD_CONV_df = BTC_USD_df.loc[min_max_time:max_min_times]
+        df = df.loc[min_max_time:max_min_times]
+        # Convert BTC to USD and save as a CSV.
+        df[value_cols] = df[value_cols] * USD_CONV_df[value_cols]
+        # Restore the Date column.
+        df.reset_index(inplace=True)
+        df['Date'] = df['Date'].map(lambda timestr: timestr.strftime(hourly_data_time_format))
+        # Save to a CSV file.
+        df.to_csv(out_filepath, float_format='%.4f', index=False)
+        # Format the pre-header similarly to the rest of the data files.
+        pre_header = "Created on {} from {}".format(dt.today().strftime('%m-%d-%Y'), os.path.basename(in_filepath))
+        line_prepend(out_filepath, pre_header)
+
+def set_str_date_col_to_datetime_index_hourly(hourly_data):
+    """
+    Sets the index of a `pandas.DataFrame` to the "Date" column, formatting it from strings to `datetime64`.
+    # TODO: Generalize this.
+
+    Parameters
+    ----------
+    hourly_data: pandas.core.frame.DataFrame
+        The `DataFrame` to set the index to the "Date" column.
+
+    Returns
+    -------
+    hourly_data: pandas.core.frame.DataFrame
+    """
+    initial_time_format = hourly_data_time_format
+    hourly_data.set_index(pd.to_datetime(hourly_data['Date'], format=initial_time_format), inplace=True)
+    hourly_data.drop('Date', axis=1, inplace=True)
+    return hourly_data
 
 def load_data(resolution, date_range=None, allow_mixing=True, source='csv', write_to_SQL=False):
     """
@@ -52,24 +115,6 @@ def load_data(resolution, date_range=None, allow_mixing=True, source='csv', writ
     prices: pandas.core.frame.DataFrame
         A `DataFrame` containing the closing values for several cryptocurrencies. Indexed by date.
     """
-    def set_str_date_col_to_datetime_index_hourly(hourly_data):
-        """
-        Sets the index of a `pandas.DataFrame` to the "Date" column, formatting it from strings to `datetime64`.
-
-        Parameters
-        ----------
-        hourly_data: pandas.core.frame.DataFrame
-            The `DataFrame` to set the index to the "Date" column.
-
-        Returns
-        -------
-        hourly_data: pandas.core.frame.DataFrame
-        """
-        initial_time_format = '%Y-%m-%d %I-%p'
-        hourly_data.set_index(pd.to_datetime(hourly_data['Date'], format=initial_time_format), inplace=True)
-        hourly_data.drop('Date', axis=1, inplace=True)
-        return hourly_data
-
     daily_source_start_date = '2013-04-28'
     daily_source_end_date = '2017-11-07'
     hourly_source_start_date = '2017-07-01'
@@ -82,7 +127,7 @@ def load_data(resolution, date_range=None, allow_mixing=True, source='csv', writ
     cryptocurrencies_with_hourly_data = \
         {'bitcoin': 'Gdax_BTCUSD_1h', 'dash': 'Poloniex_DASHUSD_1h',
          'ethereum_classic': 'Poloniex_ETCUSD_1h', 'ethereum': 'Gdax_ETHUSD_1h',
-         'litecoin': 'Gdax_LTCUSD_1h', 'monero': 'Poloniex_XMRUSD_1h', 'nem': 'Poloniex_XEMBTC_1h',
+         'litecoin': 'Gdax_LTCUSD_1h', 'monero': 'Poloniex_XMRUSD_1h', 'nem': 'Poloniex_XEMUSD_1h',
          'neo': 'Bittrex_NEOUSD_1h', 'omisego': 'Bittrex_OMGUSD_1h', 'ripple': 'Kraken_XRPUSD_1h'}
     vars = {}
 
@@ -227,18 +272,23 @@ def combine_data(vars, resolution):
 
 
 if __name__ == '__main__':
+    format_data()
+
     # num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
     #     load_data(resolution='daily', date_range=('2013-04-28', '2017-12-31'))
-    num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
-        load_data(resolution='daily', date_range=('2017-07-01', '2017-12-31'))
+    # num_currencies, currencies_labels, currencies_tickers, currencies_labels_and_tickers, prices = \
+    #     load_data(resolution='daily', date_range=('2017-07-01', '2017-12-31'))
     # print(prices.index[[0,-1]], type(prices.index[0]))
     # print("num_currencies: ", num_currencies)
     # print("currencies_labels: ", currencies_labels)
     # print("currencies_tickers: ", currencies_tickers)
     # print("currencies_labels_and_tickers: ", currencies_labels_and_tickers)
-    print("prices.columns: ", prices.columns)
+    # print("prices.columns: ", prices.columns)
     exit()
-# TODO: Remove this code for creation of figures for best param sets.
+
+
+
+    # TODO: Remove this code for creation of figures for best param sets.
     import pandas as pd
 
     num_occurrences_str = 'num_occurrences'

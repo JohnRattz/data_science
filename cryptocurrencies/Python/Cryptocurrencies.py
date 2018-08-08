@@ -125,7 +125,7 @@ def main():
         os.makedirs(models_dir)
 
     # Parameter Set Occurrences Variables and Paths
-    param_set_occurrences_dir = 'param_set_occurrences_keras_128_256'
+    param_set_occurrences_dir = 'param_set_occurrences_keras'
     if not os.path.exists(param_set_occurrences_dir):
         os.makedirs(param_set_occurrences_dir)
 
@@ -169,6 +169,7 @@ def main():
     returns = prices.pct_change()
 
     # Find correlations.
+    # TODO: Make value text smaller to fully fit into boxes.
     if make_analysis_plots:
         # Value Correlations
         plt.figure(figsize=figure_size, dpi=figure_dpi)
@@ -443,8 +444,8 @@ def main():
         #                      'model__output_dim': [subset_num_currencies],
         #                      'model__epochs': [1000],
         #                      'model__batch_size': [100]}
-        first_hidden_layer_size_single_asset = 256
-        first_hidden_layer_size_collective = 512
+        frst_hdn_lyr_sz_single_asset = 512
+        frst_hdn_lyr_sz_collective = 1024
         # three_hidden_layers = (first_hidden_layer_size_collective, first_hidden_layer_size_collective // 2,
         #                        first_hidden_layer_size_collective // 4)
         # four_hidden_layers = three_hidden_layers + (first_hidden_layer_size_collective // 8,)
@@ -458,13 +459,13 @@ def main():
         # hidden_layer_sizes_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 4,
         #                        first_hidden_layer_size_collective // 16,
         #                        first_hidden_layer_size_collective // 64)]
-        hidden_layer_sizes_single_asset = [(first_hidden_layer_size_single_asset, first_hidden_layer_size_single_asset // 4,
-                                            first_hidden_layer_size_single_asset // 16)]
-        hidden_layer_sizes_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 4,
-                                          first_hidden_layer_size_collective // 16)]
+        hidden_layer_sizes_single_asset = [(frst_hdn_lyr_sz_single_asset, frst_hdn_lyr_sz_single_asset // 4,
+                                            frst_hdn_lyr_sz_single_asset // 16, frst_hdn_lyr_sz_single_asset // 32)]
+        hidden_layer_sizes_collective = [(frst_hdn_lyr_sz_collective, frst_hdn_lyr_sz_collective // 4,
+                                          frst_hdn_lyr_sz_collective // 16, frst_hdn_lyr_sz_collective // 32)]
         # hidden_layer_sizes_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 8)]
         keras_params_neural_net = \
-            {'batch_size': [16, 24, 32],  # A too large batch size results in device OOMs.
+            {'batch_size': [8, 16, 24, 32],  # A too large batch size results in device OOMs.
              'hidden_layer_sizes': None,
              'dropout_rate': [0.1, 0.2, 0.3],
              'optimizer': [Adam],
@@ -1122,7 +1123,9 @@ def main():
         plt.xticks(rotation=x_ticks_rotation_amt, fontsize=6)
         plt.title('Parameter set occurrences for window size {}'.format(keras_best_window_size))
         plt.tight_layout()
-        plt.savefig('{}/param_set_occurrences_keras_128_256.png'.format(keras_figures_dir), dpi=figure_dpi)
+        plt.savefig('{}/param_set_occurrences_keras_{}_{}.png'
+                    .format(keras_figures_dir, frst_hdn_lyr_sz_single_asset,
+                            frst_hdn_lyr_sz_collective), dpi=figure_dpi)
 
 if __name__ == '__main__':
     main()

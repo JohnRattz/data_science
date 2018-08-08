@@ -181,7 +181,7 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv_epo
     plotting_dir: str
         The directory in which to store loss plots.
     figure_title_prefix: str
-        A string to prefix to the figure title.
+        A string to prefix the loss plot figure title.
     figure_kwargs: dict
         A ``dict`` of keyword arguments for construction of a matplotlib Figure for the loss plot.
     plotting_kwargs: dict
