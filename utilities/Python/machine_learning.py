@@ -7,6 +7,7 @@ from globals import utilities_dir
 sys.path.insert(0,'../../' + utilities_dir)
 from dict_ops import get_dict_combinations
 from plotting import KerasPlotLosses
+from scale import scale_data_with_train
 
 from sklearn.metrics import r2_score
 
@@ -16,15 +17,10 @@ import keras
 from keras import backend as K
 from keras.backend.tensorflow_backend import set_session
 from keras.models import Sequential
-from keras.layers import Dense, Dropout
+from keras.layers import Dense, Dropout, LSTM, Flatten
 from keras import optimizers
 from sklearn.preprocessing import StandardScaler
-
 import numpy as np
-import matplotlib.pyplot as plt
-
-from functools import partial
-from multiprocessing import Pool
 
 ### Keras ###
 
@@ -54,34 +50,41 @@ def keras_init(tf_min_log_level='3', gpu_mem_frac=0.3):
     set_session(tf.Session(config=config))
 
 
-def create_keras_regressor(input_dim, hidden_layer_sizes, output_dim,
-                           optimizer=optimizers.Adam, optimizer_params={},
-                           loss='mean_squared_error',
+def create_keras_regressor(input_shape, hidden_layer_sizes, output_dim, optimizer=optimizers.Adam,
+                           optimizer_params={}, hidden_layer_type='Dense', loss='mean_squared_error',
                            metrics=[], **kwargs):
     """
     TODO: Document this function.
+    TODO: Generalize this to classification.
     TODO: Use max norm (Dense(kernel_constraint=maxnorm(m)))?
     """
+    # print("hidden_layer_type:", hidden_layer_type)
     dropout_rate = kwargs.get('dropout_rate', None)
     # Construct the optimizer.
     optimizer = optimizer(**optimizer_params)
 
-    # print("input_dim, hidden_layer_sizes, output_dim: ", input_dim, hidden_layer_sizes, output_dim)
+    # TODO: Instead of `input_dim`, determine based on shape of `X_train` and `layer_type`.
+
     regressor = Sequential()
-    # Add dropout for input layer.
-    if dropout_rate is not None:
-        regressor.add(Dropout(dropout_rate, input_shape=(input_dim,)))
-    # Adding the input layer and the first hidden layer
-    regressor.add(Dense(units=hidden_layer_sizes[0], kernel_initializer='uniform', activation='relu',
-                        input_dim=input_dim))
-    # Adding the remaining hidden layers.
-    for layer_size in hidden_layer_sizes:
+    # Add the hidden layers.
+    for layer_num, layer_size in enumerate(hidden_layer_sizes):
+        # These are the parameters for this hidden layer. The parameters here are common to all hidden layers.
+        params = dict(units=layer_size)
+        if layer_num == 0: # Specify the input shape for the first hidden layer.
+            params['input_shape'] = input_shape
+        # Create this layer.
+        if hidden_layer_type == "Dense":
+            params = {**params, **dict(kernel_initializer='uniform', activation='relu')}
+            regressor.add(Dense(**params))
+        elif hidden_layer_type == "LSTM":
+            if layer_num < len(hidden_layer_sizes) - 1:  # If this is not the last hidden layer...
+                params['return_sequences'] = True
+            regressor.add(LSTM(**params))
+        # Add a dropout layer.
         if dropout_rate is not None:
             regressor.add(Dropout(dropout_rate))
-        regressor.add(Dense(units=layer_size, kernel_initializer='uniform', activation='relu'))
-    # Adding the output layer
+    # Adding the output layer and compiling the network.
     regressor.add(Dense(units=output_dim, kernel_initializer='uniform'))
-    # Compiling the ANN
     regressor.compile(optimizer=optimizer, loss=loss, metrics=metrics)
     return regressor
 
@@ -136,20 +139,18 @@ def extract_non_optimizer_params(optimizer, param_set):
     optimizer_param_names = ['optimizer']
     if optimizer is optimizers.Adam:
         optimizer_param_names += ['lr', 'beta_1', 'beta_2', 'epsilon', 'decay', 'amsgrad']
-    # param_names = list(param_set.keys())
-    # non_optimizer_param_names = list(set(param_names) - set(optimizer_param_names))
     # Extract the parameters.
     for non_optimizer_param_name in [param_name for param_name in param_set
                                      if param_name not in optimizer_param_names]:
         non_optimizer_params[non_optimizer_param_name] = param_set[non_optimizer_param_name]
     return non_optimizer_params
 
-def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv_epochs=None, cv=None, scoring=r2_score, scale=True,
-                          verbose=0, plot_losses=False, plotting_dir=None, figure_title_prefix="",
-                          figure_kwargs={}, plotting_kwargs={}):
+def keras_reg_grid_search(X_dict, y, build_fn, output_dim, param_grid, epochs, cv_epochs=None, cv=None,
+                          scoring=r2_score, scale=True, verbose=0, plot_losses=False,
+                          plotting_dir=None, figure_title_prefix="", figure_kwargs={}, plotting_kwargs={}):
     """
     TODO: Why use `build_fn` when there is only one sensible build function to call?
-    TODO: Document this function (X, y, build_fn).
+    TODO: Document this function (X_dict, y, build_fn).
     TODO: Try to sleep the calling thread on Keras model `fit()` calls (low priority)?
     TODO: Plot losses for each param set or the best param set (add parameter to specify).
 
@@ -187,15 +188,6 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv_epo
     plotting_kwargs: dict
         A ``dict`` of keyword arguments for the plotting of the loss plot (`matplotlib.pyplot.plot()`).
     """
-    # TODO: Remove these lines when done debugging memory consumption.
-    # import os
-    # import psutil
-    # process = psutil.Process(os.getpid())
-    cv_epochs = epochs if cv_epochs is None else cv_epochs
-
-    # Verbosity for Keras fit().
-    keras_verbose = max(0, verbose - 1)
-    loss_plotters = {} if plot_losses else None # Dictionary mapping non-optimizer parameter values to loss plotters.
 
     def create_model_from_param_set(param_set, optimizer_params, build_fn):
         """
@@ -203,8 +195,16 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv_epo
         """
         model_building_param_set = param_set.copy()
         model_building_param_set.pop('batch_size', None)
+        hidden_layer_type = model_building_param_set['hidden_layer_type']
+        input_shape = None
+        if hidden_layer_type == 'Dense':
+            input_shape = X_dict[hidden_layer_type].shape
+        elif hidden_layer_type == 'LSTM':
+            # For Keras RNNs, the shape is (batch_size, timesteps, input_dim).
+            # See https://keras.io/layers/recurrent/#rnn for more information.
+            input_shape = X_dict[hidden_layer_type].shape[1:]
         hidden_layer_sizes = model_building_param_set.pop('hidden_layer_sizes', None)
-        model = build_fn(input_dim=input_dim, hidden_layer_sizes=hidden_layer_sizes,
+        model = build_fn(input_shape=input_shape, hidden_layer_sizes=hidden_layer_sizes,
                          output_dim=output_dim, optimizer_params=optimizer_params, **model_building_param_set)
         return model
 
@@ -212,9 +212,16 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv_epo
         """
         TODO: Document this function.
         """
+        # Extract the appropriately formatted data.
+        hidden_layer_type = param_set['hidden_layer_type']
+        X = X_dict[hidden_layer_type]
+        nonlocal y
+
+        # Extract some elements of the parameter set.
         batch_size = param_set.get('batch_size')
         optimizer = param_set.get('optimizer')
         optimizer_params = extract_optimizer_params(optimizer, param_set)
+
         model = create_model_from_param_set(param_set, optimizer_params, build_fn)
         non_optimizer_params = extract_non_optimizer_params(optimizer, param_set)
         non_optimizer_param_vals = tuple(non_optimizer_params.values())
@@ -232,14 +239,14 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv_epo
                 X_train, X_test = X[train_indices], X[test_indices]
                 y_train, y_test = y[train_indices], y[test_indices]
                 if scale:
-                    X_scaler = StandardScaler()
-                    y_scaler = StandardScaler()
-                    X_scaler.fit(X_train)
-                    X_train = X_scaler.transform(X_train)
-                    X_test = X_scaler.transform(X_test)
-                    y_scaler.fit(y_train)
-                    y_train = y_scaler.transform(y_train)
-                    y_test = y_scaler.transform(y_test)
+                    # Data shape can vary based on parameters like 'hidden_layer_type',
+                    # so the data must be reshaped for `StandardScaler`, then restored to its original shape.
+                    X_train_reshaped, X_test_reshaped = reshape_data_from_keras_to_2D(X_train, X_test)
+                    X_train_reshaped, X_test_reshaped, X_scaler = scale_data_with_train(X_train_reshaped, X_test_reshaped)
+                    X_train, X_test = X_train_reshaped.reshape(X_train.shape), X_test_reshaped.reshape(X_test.shape)
+                    y_train_reshaped, y_test_reshaped = reshape_data_from_keras_to_2D(y_train, y_test)
+                    y_train_reshaped, y_test_reshaped, y_scaler = scale_data_with_train(y_train_reshaped, y_test_reshaped)
+                    y_train, y_test = y_train_reshaped.reshape(y_train.shape), y_test_reshaped.reshape(y_test.shape)
                 model.fit(X_train, y_train, epochs=cv_epochs, batch_size=batch_size, verbose=keras_verbose)
                 y_pred = model.predict(X_test)
                 score += scoring(y_test, y_pred)
@@ -250,15 +257,14 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv_epo
                 loss_plotter.set_optimizer(optimizer)
                 loss_plotter.set_optimizer_params(optimizer_params)
                 loss_plotter.set_non_optimizer_params(non_optimizer_params)
-            X_scaled, y_scaled = [None]*2
             if scale:
-                X_scaler = StandardScaler()
-                y_scaler = StandardScaler()
-                X_scaler.fit(X)
-                X_scaled = X_scaler.transform(X)
-                y_scaler.fit(y)
-                y_scaled = y_scaler.transform(y)
-            model.fit(X_scaled, y_scaled, epochs=epochs, batch_size=batch_size, verbose=keras_verbose,
+                X_reshaped = reshape_data_from_keras_to_2D(X)[0]
+                X_reshaped, X_scaler = scale_data_with_train(X_reshaped)
+                X = X_reshaped.reshape(X.shape)
+                y_reshaped = reshape_data_from_keras_to_2D(y)[0]
+                y_reshaped, y_scaler = scale_data_with_train(y_reshaped)
+                y = y_reshaped.reshape(y.shape)
+            model.fit(X, y, epochs=epochs, batch_size=batch_size, verbose=keras_verbose,
                       callbacks=[loss_plotter] if plot_losses else None)
             y_pred = model.predict(X)
             score = scoring(y,y_pred)
@@ -266,7 +272,11 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv_epo
         K.clear_session()  # Deallocate models to free GPU memory.
         return score, batch_size, optimizer_params
 
-    input_dim = X.shape[1]
+    cv_epochs = epochs if cv_epochs is None else cv_epochs
+
+    # Verbosity for Keras fit().
+    keras_verbose = max(0, verbose - 1)
+    loss_plotters = {} if plot_losses else None  # Dictionary mapping non-optimizer parameter values to loss plotters.
 
     # Test a model for each parameter set.
     param_sets = get_dict_combinations(param_grid)
@@ -298,17 +308,18 @@ def keras_reg_grid_search(X, y, build_fn, output_dim, param_grid, epochs, cv_epo
                 # TODO: Print over the same line in a multi-platform and reasonably terminal-agnostic way in Python3.
                 print('[{}] Completed {:%} of param sets'
                       .format(prg_bar_inner_str, frac_param_sets_cmplt))
+    hidden_layer_type = best_param_set['hidden_layer_type']
+    X = X_dict[hidden_layer_type]
     # Train the best model on the full dataset.
     best_model = create_model_from_param_set(best_param_set, best_optimizer_params, build_fn)
-    X_scaled, y_scaled = [None]*2
     if scale:
-        X_scaler = StandardScaler()
-        y_scaler = StandardScaler()
-        X_scaler.fit(X)
-        X_scaled = X_scaler.transform(X)
-        y_scaler.fit(y)
-        y_scaled = y_scaler.transform(y)
-    best_model.fit(X_scaled, y_scaled, epochs=epochs, batch_size=best_batch_size, verbose=keras_verbose)
+        X_reshaped = reshape_data_from_keras_to_2D(X)[0]
+        X_reshaped, X_scaler = scale_data_with_train(X_reshaped)
+        X = X_reshaped.reshape(X.shape)
+        y_reshaped = reshape_data_from_keras_to_2D(y)[0]
+        y_reshaped, y_scaler = scale_data_with_train(y_reshaped)
+        y = y_reshaped.reshape(y.shape)
+    best_model.fit(X, y, epochs=epochs, batch_size=best_batch_size, verbose=keras_verbose)
     if plot_losses:
         for loss_plotter in loss_plotters.values():
             loss_plotter.save_figure()
@@ -322,3 +333,69 @@ def keras_convert_optimizer_obj_to_name(optimizer):
         return 'Adam'
 
 ### End Keras ###
+
+def reshape_data_from_2D_to_keras(params, output_dim, *args):
+    """
+    Reshapes data to a 2D representation based on values in a parameter set or grid, such as 'hidden_layer_type'.
+    Notably, sklearn scalers such as `StandardScaler` require their data to be in 2D representation.
+    This should work for reshaping data of both `X` (feature matrix) and `y` ("label" matrix).
+
+    Parameters
+    ----------
+    params: dict
+        Either a parameter set or a parameter grid.
+    output_dim: int
+        The number of outputs of the neural network.
+    *args:
+        The data to reshape, which could be the full data, training data, testing data, validation data,
+        or some combination of those.
+
+    Returns
+    -------
+    reshaped_data: list or dict
+        If `params` is a parameter set, a list of the same data as in `args`, but reshaped.
+        If `params`is a parameter grid, a dictionary mapping every hidden layer type to its reshaped data.
+    """
+    def get_data(hidden_layer_type):
+        """
+        Given a hidden layer type, return the properly formatted data.
+        """
+        if hidden_layer_type == 'Dense':
+            return args[0] if len(args) == 1 else args
+        if hidden_layer_type == 'LSTM':
+            data_reshaped = list(map(lambda data: data.reshape(data.shape[0], data.shape[1], output_dim), args))
+            return data_reshaped[0] if len(data_reshaped) == 1 else data_reshaped
+
+    # If `params` is a parameter dictionary.
+    if isinstance(list(params.values())[0], list):
+        output_dict = {}
+        # TODO: Does the shape alteration code depend on whether `X` or `y` is used for a given entry in `args`?
+        if 'Dense' in params['hidden_layer_type']:
+            output_dict['Dense-'] = get_data('Dense')
+        if 'LSTM' in params['hidden_layer_type']:
+            output_dict['LSTM'] = get_data('LSTM')
+        return output_dict
+    else: # If `params` is a parameter set.
+        return get_data(params['hidden_layer_type'])
+
+def reshape_data_from_keras_to_2D(*args, param_set=None):
+    """
+    Reshapes data to a 2D representation based on values in the parameter set, such as 'hidden_layer_type'.
+    Notably, sklearn scalers such as `StandardScaler` require their data to be in 2D representation.
+    Currently, the same code works for reshaping data for both `X` (feature matrix) and `y` ("label" matrix).
+
+    Parameters
+    ----------
+    *args: list
+        The data to reshape, which could be the full data, training data, testing data, validation data,
+        or some combination of those.
+    param_set: dict
+        A dictionary of parameter names and values.
+
+    Returns
+    -------
+    reshaped_data: list
+        The reshaped data - same length as `args`.
+    """
+    # So far, `param_set` has not been needed to determine how to reshape.
+    return list(map(lambda data: data.reshape(data.shape[0], -1), args))
