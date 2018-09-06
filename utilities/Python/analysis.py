@@ -5,11 +5,12 @@ from scipy.stats import norm
 
 ### Financial ###
 
-def find_optimal_portfolio_weights(log_returns, return_risk_free=0, markowitz_iterations=1000, plot=False):
+def find_Markowitz_optimal_portfolio_weights(log_returns, return_risk_free=0, markowitz_iterations=100000, plot=False):
     """
     Finds the optimal fractional composition (the "weights") for a portfolio of financial assets using the
     Markowitz portfolio optimization technique.
     # TODO: Increase `markowitz_iterations` to 100000 when done programming.
+    # TODO: Store the plot image rather than showing it.
 
     Parameters
     ----------
@@ -78,11 +79,6 @@ def calc_CAPM_betas(log_returns, market_index):
 def CAPM_RoR(betas, returns, market_index, return_risk_free):
     """
     # TODO: Document this method.
-    :param betas:
-    :param returns:
-    :param market_index:
-    :param return_risk_free:
-    :return:
     """
     return_market = returns[market_index].mean()
     risk_premium = return_market - return_risk_free
@@ -92,7 +88,7 @@ def CAPM_RoR(betas, returns, market_index, return_risk_free):
     return CAPM_expected_rates_of_return
 
 
-def run_monte_carlo_financial_simulation(prices, extrapolation_dates, iterations=100):
+def run_monte_carlo_financial_simulation(prices, extrapolation_dates, iterations=1000):
     """
     TODO: Increase `iterations` to 1000 when finished programming.
     Runs a Monte Carlo simulation of asset values using the concept of Brownian motion.

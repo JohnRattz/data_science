@@ -363,7 +363,7 @@ def reshape_data_from_2D_to_keras(params, output_dim, *args):
         if hidden_layer_type == 'Dense':
             return args[0] if len(args) == 1 else args
         if hidden_layer_type == 'LSTM':
-            data_reshaped = list(map(lambda data: data.reshape(data.shape[0], data.shape[1], output_dim), args))
+            data_reshaped = list(map(lambda data: data.reshape(data.shape[0], int(data.shape[1]/output_dim), output_dim), args))
             return data_reshaped[0] if len(data_reshaped) == 1 else data_reshaped
 
     # If `params` is a parameter dictionary.

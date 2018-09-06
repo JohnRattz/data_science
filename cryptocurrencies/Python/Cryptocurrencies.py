@@ -5,9 +5,9 @@ def main():
     ### Environment and Pre-load Library Settings###
     from utilities.Python.machine_learning import keras_init
     # `gpu_mem_frac` is the fraction of GPU memory dedicated to the TensorFlow backend
-    # of Keras and may need to change for your system.
-    # For reference, I run this script with a GTX 1080Ti, which has 11GB of memory.
-    keras_init(gpu_mem_frac=0.6)
+    # of Keras and may need to change based on your system and settings used - notably batch size in model training.
+    # For reference, I run this script with a GTX 1080 Ti, which has 11 GiB of memory.
+    keras_init(gpu_mem_frac=0.35)
 
     ### Imports ###
 
@@ -53,7 +53,7 @@ def main():
 
     # Custom utility functions
     # sys.path.insert(0, '../../' + utilities_dir)
-    from analysis import find_optimal_portfolio_weights, calc_CAPM_betas, CAPM_RoR, run_monte_carlo_financial_simulation
+    from analysis import find_Markowitz_optimal_portfolio_weights, calc_CAPM_betas, CAPM_RoR, run_monte_carlo_financial_simulation
     from conversions import pandas_dt_to_str
     from utilities.Python.plotting import add_value_text_to_seaborn_barplot, monte_carlo_plot_confidence_band
 
@@ -79,7 +79,9 @@ def main():
     model_last_extrapolation_time = pd.to_datetime('2018-03-31')
 
     # Machine Learning Settings
-    # TODO: Detect if `load_models = False` will throw an error before running. If so, give a clear error message.
+    # TODO (1): Create boolean variable `train_models_not_present` which specifies whether to train models missing
+    # TODO (1): on secondary storage when `load_models == True`.
+    # TODO (2): Detect if `load_models = False` will throw an error before running. If so, give a clear error message.
     load_models = False # Whether or not to load models that have already been created by this program.
     # The number of logical processors to use during grid search.
     num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
@@ -97,7 +99,7 @@ def main():
     make_prediction_plots = True
     # Whether or not to plot loss for Keras neural networks over time during training when not using cross validation.
     # This setting only matters when `keras_use_cv_grd_srch == False`.
-    make_keras_loss_plots = False
+    make_keras_loss_plots = True
     # Whether or not to make plots of parameter set occurrences for Keras neural networks.
     # These figures are used to visualize the most successful parameter sets for Keras neural networks.
     make_keras_param_set_occurrence_plots = True
@@ -299,7 +301,7 @@ def main():
 
     # Determine the optimal portfolio using Markowitz optimization.
     if make_analysis_plots:
-        optimal_weights = find_optimal_portfolio_weights(subset_log_returns, return_risk_free)
+        optimal_weights = find_Markowitz_optimal_portfolio_weights(subset_log_returns, return_risk_free)
         optimal_weights.sort_values(ascending=False, inplace=True)
         # Create a visualization with the weights.
         fig, ax = plt.subplots(figsize=figure_size)
@@ -365,7 +367,7 @@ def main():
         window_sizes = np.array([7, 14] + list(range(30, 361, 30)))
     else: # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months.
         # With just 14 days and 7 cryptocurrencies, we have 14 * 24 * 7 = 2352 features.
-        window_sizes = 24*7*np.array([1])#, 2, 4, 8])
+        window_sizes = 24*7*np.array([1, 2, 4, 8])
     window_sizes = window_sizes[::-1] # User larger to smaller window sizes to catch memory-related errors early.
 
     # Directory Structure Creation (Keras Optimization Trend Figures - "Loss Plots")
@@ -446,8 +448,8 @@ def main():
         #                      'model__output_dim': [subset_num_currencies],
         #                      'model__epochs': [1000],
         #                      'model__batch_size': [100]}
-        frst_hdn_lyr_sz_nn_single_asset = 256#512
-        frst_hdn_lyr_sz_nn_collective = 512#1024
+        frst_hdn_lyr_sz_nn_single_asset = 512
+        frst_hdn_lyr_sz_nn_collective = 1024
         # three_hidden_layers = (first_hidden_layer_size_collective, first_hidden_layer_size_collective // 2,
         #                        first_hidden_layer_size_collective // 4)
         # four_hidden_layers = three_hidden_layers + (first_hidden_layer_size_collective // 8,)
@@ -467,25 +469,25 @@ def main():
                                           frst_hdn_lyr_sz_nn_collective // 16, frst_hdn_lyr_sz_nn_collective // 64)]
         # hdn_lyr_szs_nn_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 8)]
         keras_params_nn = {
-             'batch_size': [64],#[8, 16, 24, 32],  # A too large batch size results in device OOMs.
+             'batch_size': [32],  # A too large batch size results in device OOMs.
              'hidden_layer_sizes': None, # Added later to handle single asset and collective asset models separately.
              'hidden_layer_type': ['LSTM'],
-             'dropout_rate': [0.1],#, 0.2, 0.3],
+             'dropout_rate': [0.1, 0.3],
              'optimizer': [Adam],
              # Parameters for Adam optimizer.
-             'lr': [1e-6],#, 1e-4, 1e-2],
-             'beta_1': [0.7],#, 0.8, 0.9],
-             'beta_2': [0.9]}#, 0.95, 0.999]}
+             'lr': [1e-6, 1e-2],
+             'beta_1': [0.7, 0.8, 0.9],
+             'beta_2': [0.9, 0.95, 0.999]}
         keras_param_names = list(keras_params_nn.keys())
         # The number of epochs to train for in grid search.
         # NOTE: This will likely impact run time much more significantly than `keras_nn_epochs` by a factor of
         # the number of parameter combinations in `keras_params_nn`, further multiplied by `n_splits` used
         # for cross validation (the `cv` object below) if `keras_use_cv_grd_srch`.
-        keras_nn_epochs_grd_srch = 1
+        keras_nn_epochs_grd_srch = 5
         keras_nn_epochs_grd_srch = min(2, keras_nn_epochs_grd_srch) \
             if not keras_use_cv_grd_srch & make_keras_loss_plots else keras_nn_epochs_grd_srch
         # The number of epochs to train for without or after cross validation.
-        keras_nn_epochs = 1
+        keras_nn_epochs = 5
 
         keras_model_rnn = "Keras_RNN"
         keras_params_rnn = {
@@ -735,7 +737,7 @@ def main():
                 param_grid['hidden_layer_sizes'] = hdn_lyr_szs_nn_collective
                 if model_to_test == keras_model_nn:
                     # The data has different formats based on parameter values in parameter sets.
-                    X_dict = reshape_data_from_2D_to_keras(param_grid, 1, X)
+                    X_dict = reshape_data_from_2D_to_keras(param_grid, subset_num_currencies, X)
                     model, score, param_set = \
                         keras_reg_grid_search(X_dict, y, build_fn=create_keras_regressor, output_dim=subset_num_currencies,
                                               param_grid=param_grid, epochs=keras_nn_epochs,
@@ -829,6 +831,8 @@ def main():
                     if type(single_asset_model) is keras.models.Sequential:
                         X_subset = reshape_data_from_2D_to_keras(param_set, 1, X_subset)
                     single_asset_models_pred[:, currency_index] = single_asset_model.predict(X_subset).flatten()
+                # print("X.shape:", X.shape)
+                # print("single_asset_models_pred.shape:", single_asset_models_pred.shape)
                 return single_asset_models_pred
 
             def collective_assets_model_predict(X):
@@ -847,6 +851,8 @@ def main():
                 if type(collective_assets_model) is keras.models.Sequential:
                     X = reshape_data_from_2D_to_keras(param_set, 1, X)
                 collective_assets_model_pred = collective_assets_model.predict(X)
+                # print("X.shape:", X.shape)
+                # print("collective_assets_model_pred.shape:", collective_assets_model_pred.shape)
                 return collective_assets_model_pred
 
             def load_model(model_type, model_path):
@@ -958,6 +964,7 @@ def main():
 
             # Get the models' predictions for the rest of 2017 and 2018.
             # TODO: Make this a function that is run for both single asset models and the collective assets model.
+            # TODO: (Performance) Slide window by `window_size` time units - not 1 time unit - for prediction steps.
 
             # Single Asset Model Predictions
             load_single_asset_models()

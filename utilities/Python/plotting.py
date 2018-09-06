@@ -203,9 +203,9 @@ class KerasPlotLosses(keras.callbacks.Callback):
         if epoch == self.nb_epochs - 1: # This is the last epoch, so plot the losses.
             linewidth = self.plotting_kwargs.pop('linewidth', max(min(1.0, 6.0/self.num_lines), 2.0))
             # TODO: Make `first_epoch_to_plot` changeable.
-            first_epoch_to_plot = 20
-            plotting_x = self.x[first_epoch_to_plot:] if self.nb_epochs >= first_epoch_to_plot else self.x
-            plt.plot(plotting_x, self.losses, label=self.optimizer_param_names, linewidth=linewidth, **self.plotting_kwargs)
+            # first_epoch_to_plot = 20
+            # plotting_x = self.x[first_epoch_to_plot:] if self.nb_epochs >= first_epoch_to_plot else self.x
+            plt.plot(self.x, self.losses, label=self.optimizer_param_names, linewidth=linewidth, **self.plotting_kwargs)
             plt.title(self.title)
             plt.legend()
 
