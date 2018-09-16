@@ -7,7 +7,7 @@ def main():
     # `gpu_mem_frac` is the fraction of GPU memory dedicated to the TensorFlow backend
     # of Keras and may need to change based on your system and settings used - notably batch size in model training.
     # For reference, I run this script with a GTX 1080 Ti, which has 11 GiB of memory.
-    keras_init(gpu_mem_frac=0.35)
+    keras_init(gpu_mem_frac=0.6)
 
     ### Imports ###
 
@@ -79,15 +79,16 @@ def main():
     model_last_extrapolation_time = pd.to_datetime('2018-03-31')
 
     # Machine Learning Settings
-    # TODO (1): Create boolean variable `train_models_not_present` which specifies whether to train models missing
-    # TODO (1): on secondary storage when `load_models == True`.
-    # TODO (2): Detect if `load_models = False` will throw an error before running. If so, give a clear error message.
+    # TODO (model_loading_1): Create boolean variable `train_models_not_present` which specifies whether to train models missing
+    # TODO (model_loading_1): on secondary storage when `load_models == True`.
+    # TODO (model_loading_2): Detect if `load_models = False` will throw an error before running. If so, give a clear error message.
     load_models = False # Whether or not to load models that have already been created by this program.
     # The number of logical processors to use during grid search.
     num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
+    num_cv_splits = 4 # The number of folds in cross validation.
     # TODO: Add a parameter to determine whether or not param set occurrences are pickled?
     # Whether or not to use cross validation in Keras grid search.
-    keras_use_cv_grd_srch = False
+    keras_use_cv_grd_srch = True
     # The level of verbosity in `keras_reg_grid_search()`.
     keras_grd_srch_verbose = 1
 
@@ -391,6 +392,7 @@ def main():
     ### Main Loop ###
     for window_size_ind, window_size in enumerate(window_sizes):
         # Data Extraction
+        # TODO: Don't reshape to overlapping windows if using RNNs.
         num_windows = len(subset_prices_nonan) - window_size
         num_features = subset_num_currencies * window_size
         X = np.empty((num_windows, num_features), dtype=np.float64)
@@ -448,6 +450,7 @@ def main():
         #                      'model__output_dim': [subset_num_currencies],
         #                      'model__epochs': [1000],
         #                      'model__batch_size': [100]}
+        # TODO: Choose hidden layer sizes according to https://stats.stackexchange.com/a/1097/191200
         frst_hdn_lyr_sz_nn_single_asset = 512
         frst_hdn_lyr_sz_nn_collective = 1024
         # three_hidden_layers = (first_hidden_layer_size_collective, first_hidden_layer_size_collective // 2,
@@ -463,36 +466,33 @@ def main():
         # hdn_lyr_szs_nn_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 4,
         #                        first_hidden_layer_size_collective // 16,
         #                        first_hidden_layer_size_collective // 64)]
-        hdn_lyr_szs_nn_single_asset = [(frst_hdn_lyr_sz_nn_single_asset, frst_hdn_lyr_sz_nn_single_asset // 4,
-                                            frst_hdn_lyr_sz_nn_single_asset // 16, frst_hdn_lyr_sz_nn_single_asset // 64)]
-        hdn_lyr_szs_nn_collective = [(frst_hdn_lyr_sz_nn_collective, frst_hdn_lyr_sz_nn_collective // 4,
-                                          frst_hdn_lyr_sz_nn_collective // 16, frst_hdn_lyr_sz_nn_collective // 64)]
-        # hdn_lyr_szs_nn_collective = [(first_hidden_layer_size_collective, first_hidden_layer_size_collective // 8)]
+
+        hdn_lyr_szs_nn_single_asset = [(frst_hdn_lyr_sz_nn_single_asset, frst_hdn_lyr_sz_nn_single_asset // 4)]#,
+                                        #frst_hdn_lyr_sz_nn_single_asset // 16, frst_hdn_lyr_sz_nn_single_asset // 64)]
+        hdn_lyr_szs_nn_collective = [(frst_hdn_lyr_sz_nn_collective, frst_hdn_lyr_sz_nn_collective // 4)]#,
+                                      #frst_hdn_lyr_sz_nn_collective // 16, frst_hdn_lyr_sz_nn_collective // 64)]
+
         keras_params_nn = {
-             'batch_size': [32],  # A too large batch size results in device OOMs.
+             'batch_size': [64],  # A too large batch size results in device OOMs.
              'hidden_layer_sizes': None, # Added later to handle single asset and collective asset models separately.
              'hidden_layer_type': ['LSTM'],
              'dropout_rate': [0.1, 0.3],
              'optimizer': [Adam],
              # Parameters for Adam optimizer.
-             'lr': [1e-6, 1e-2],
-             'beta_1': [0.7, 0.8, 0.9],
-             'beta_2': [0.9, 0.95, 0.999]}
+             'lr': [1e-3],
+             'beta_1': [0.9],#[0.7, 0.9],
+             'beta_2': [0.999]}#[0.9, 0.999]}
         keras_param_names = list(keras_params_nn.keys())
         # The number of epochs to train for in grid search.
         # NOTE: This will likely impact run time much more significantly than `keras_nn_epochs` by a factor of
         # the number of parameter combinations in `keras_params_nn`, further multiplied by `n_splits` used
         # for cross validation (the `cv` object below) if `keras_use_cv_grd_srch`.
-        keras_nn_epochs_grd_srch = 5
-        keras_nn_epochs_grd_srch = min(2, keras_nn_epochs_grd_srch) \
+        keras_nn_epochs_grd_srch = 20
+        keras_nn_epochs_grd_srch = max(2, keras_nn_epochs_grd_srch) \
             if not keras_use_cv_grd_srch & make_keras_loss_plots else keras_nn_epochs_grd_srch
         # The number of epochs to train for without or after cross validation.
-        keras_nn_epochs = 5
+        keras_nn_epochs = 20
 
-        keras_model_rnn = "Keras_RNN"
-        keras_params_rnn = {
-            # TODO: Populate this?
-        }
         # make_keras_picklable()
         # print(type(KerasRegressor(build_fn=create_keras_model)))
         # from model_saving_loading import save_keras_pipeline, load_keras_pipeline
@@ -569,7 +569,7 @@ def main():
         # param_grids = [params_extra_trees] # Extra-Trees
 
         # Specify the cross validation method.
-        cv = TimeSeriesSplit(n_splits=4)
+        cv = TimeSeriesSplit(n_splits=num_cv_splits)
         keras_cv = cv if keras_use_cv_grd_srch else None
 
         # Populates `keras_param_sets_occurrences`. Tracks the number of occurrences of parameter sets for window sizes.
@@ -849,7 +849,7 @@ def main():
                 param_set = collective_assets_model_param_set
                 # Handle any reshaping for models that require it.
                 if type(collective_assets_model) is keras.models.Sequential:
-                    X = reshape_data_from_2D_to_keras(param_set, 1, X)
+                    X = reshape_data_from_2D_to_keras(param_set, 7, X)
                 collective_assets_model_pred = collective_assets_model.predict(X)
                 # print("X.shape:", X.shape)
                 # print("collective_assets_model_pred.shape:", collective_assets_model_pred.shape)
@@ -963,8 +963,9 @@ def main():
             # print("Getting predictions!")
 
             # Get the models' predictions for the rest of 2017 and 2018.
-            # TODO: Make this a function that is run for both single asset models and the collective assets model.
-            # TODO: (Performance) Slide window by `window_size` time units - not 1 time unit - for prediction steps.
+            # TODO (1): Make this a function that is run for both single asset models and the collective assets model.
+            # TODO (2): Inverse transform results of `single_asset_models_predict()` and `collective_assets_model_predict()`.
+            # TODO (3): (Performance) Slide window by `window_size` time units - not 1 time unit - for prediction steps.
 
             # Single Asset Model Predictions
             load_single_asset_models()
