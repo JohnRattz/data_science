@@ -35,8 +35,8 @@ def keras_init(tf_min_log_level='3', gpu_mem_frac=0.3):
         Higher numbers for this parameter allow fewer prints from the TensorFlow backend.
     gpu_mem_frac: float
         The fraction of GPU on-board memory allocated to the TensorFlow backend.
-        Note that models that do not use TensorFlow components that allow memory swapping between GPU and system memory,
-        such as those used by Keras layers like `Sequential`, may cause OOM errors preventing models from being trained
+        Note that models_keras_rnn_512_1024_20e_20e that do not use TensorFlow components that allow memory swapping between GPU and system memory,
+        such as those used by Keras layers like `Sequential`, may cause OOM errors preventing models_keras_rnn_512_1024_20e_20e from being trained
         and potentially crashing the Python interpreter with an uncaught and otherwise difficult-to-handle exception.
     """
     # Remove TensorFlow (Keras' default backend) debugging prints.
@@ -146,7 +146,7 @@ def extract_non_optimizer_params(optimizer, param_set):
     return non_optimizer_params
 
 def keras_reg_grid_search(X_dict, y, build_fn, output_dim, param_grid, epochs, cv_epochs=None, cv=None,
-                          scoring=r2_score, scale=True, verbose=0, plot_losses=False,
+                          scoring=r2_score, verbose=0, plot_losses=False,
                           plotting_dir=None, figure_title_prefix="", figure_kwargs={}, plotting_kwargs={}):
     """
     TODO: Why use `build_fn` when there is only one sensible build function to call?
@@ -171,8 +171,6 @@ def keras_reg_grid_search(X_dict, y, build_fn, output_dim, param_grid, epochs, c
         An object to be used as a cross-validation generator.
     scoring: function
         A scoring function, like ``sklearn.metrics.r2_score``.
-    scale: bool
-        Whether or not to standard scale the data before training.
     verbose: int
         Can be 0, 1, 2, or 3. 0 = silent, 1 = updates on grid search (# param sets completed),
         2 = Keras verbosity 1 (progress bar), 3 = Keras verbosity 2 (one line per epoch).
@@ -238,17 +236,21 @@ def keras_reg_grid_search(X_dict, y, build_fn, output_dim, param_grid, epochs, c
             for train_indices, test_indices in cv.split(X):
                 X_train, X_test = X[train_indices], X[test_indices]
                 y_train, y_test = y[train_indices], y[test_indices]
-                if scale:
-                    # Data shape can vary based on parameters like 'hidden_layer_type',
-                    # so the data must be reshaped for `StandardScaler`, then restored to its original shape.
-                    X_train_reshaped, X_test_reshaped = reshape_data_from_keras_to_2D(X_train, X_test)
-                    X_train_reshaped, X_test_reshaped, X_scaler = scale_data_with_train(X_train_reshaped, X_test_reshaped)
-                    X_train, X_test = X_train_reshaped.reshape(X_train.shape), X_test_reshaped.reshape(X_test.shape)
-                    y_train_reshaped, y_test_reshaped = reshape_data_from_keras_to_2D(y_train, y_test)
-                    y_train_reshaped, y_test_reshaped, y_scaler = scale_data_with_train(y_train_reshaped, y_test_reshaped)
-                    y_train, y_test = y_train_reshaped.reshape(y_train.shape), y_test_reshaped.reshape(y_test.shape)
+                # if scale:
+                ## CV Scaling ##
+                # Data shape can vary based on parameters like 'hidden_layer_type',
+                # so the data must be reshaped for `StandardScaler`, then restored to its original shape.
+                X_train_reshaped, X_test_reshaped = reshape_data_from_keras_to_2D(X_train, X_test)
+                X_train_reshaped, X_test_reshaped, X_scaler = scale_data_with_train(X_train_reshaped, X_test_reshaped)
+                X_train, X_test = X_train_reshaped.reshape(X_train.shape), X_test_reshaped.reshape(X_test.shape)
+                y_train_reshaped, y_test_reshaped = reshape_data_from_keras_to_2D(y_train, y_test)
+                y_train_reshaped, y_test_reshaped, y_scaler = scale_data_with_train(y_train_reshaped, y_test_reshaped)
+                y_train, y_test = y_train_reshaped.reshape(y_train.shape), y_test_reshaped.reshape(y_test.shape)
+                ## End CV Scaling ##
                 model.fit(X_train, y_train, epochs=cv_epochs, batch_size=batch_size, verbose=keras_verbose)
                 y_pred = model.predict(X_test)
+                # TODO: Find out why the following error is thrown for large batch sizes (specifically with RNNs?):
+                # TODO: ValueError: Input contains NaN, infinity or a value too large for dtype('float32').
                 score += scoring(y_test, y_pred)
                 n_splits += 1
             score = score / n_splits
@@ -257,19 +259,19 @@ def keras_reg_grid_search(X_dict, y, build_fn, output_dim, param_grid, epochs, c
                 loss_plotter.set_optimizer(optimizer)
                 loss_plotter.set_optimizer_params(optimizer_params)
                 loss_plotter.set_non_optimizer_params(non_optimizer_params)
-            if scale:
-                X_reshaped = reshape_data_from_keras_to_2D(X)[0]
-                X_reshaped, X_scaler = scale_data_with_train(X_reshaped)
-                X = X_reshaped.reshape(X.shape)
-                y_reshaped = reshape_data_from_keras_to_2D(y)[0]
-                y_reshaped, y_scaler = scale_data_with_train(y_reshaped)
-                y = y_reshaped.reshape(y.shape)
+            # if scale:
+            #     X_reshaped = reshape_data_from_keras_to_2D(X)[0]
+            #     X_reshaped, X_scaler = scale_data_with_train(X_reshaped)
+            #     X = X_reshaped.reshape(X.shape)
+            #     y_reshaped = reshape_data_from_keras_to_2D(y)[0]
+            #     y_reshaped, y_scaler = scale_data_with_train(y_reshaped)
+            #     y = y_reshaped.reshape(y.shape)
             model.fit(X, y, epochs=epochs, batch_size=batch_size, verbose=keras_verbose,
                       callbacks=[loss_plotter] if plot_losses else None)
             y_pred = model.predict(X)
             score = scoring(y,y_pred)
         del model
-        K.clear_session()  # Deallocate models to free GPU memory.
+        K.clear_session()  # Deallocate models_keras_rnn_512_1024_20e_20e to free GPU memory.
         return score, batch_size, optimizer_params
 
     cv_epochs = epochs if cv_epochs is None else cv_epochs
@@ -312,13 +314,13 @@ def keras_reg_grid_search(X_dict, y, build_fn, output_dim, param_grid, epochs, c
     X = X_dict[hidden_layer_type]
     # Train the best model on the full dataset.
     best_model = create_model_from_param_set(best_param_set, best_optimizer_params, build_fn)
-    if scale:
-        X_reshaped = reshape_data_from_keras_to_2D(X)[0]
-        X_reshaped, X_scaler = scale_data_with_train(X_reshaped)
-        X = X_reshaped.reshape(X.shape)
-        y_reshaped = reshape_data_from_keras_to_2D(y)[0]
-        y_reshaped, y_scaler = scale_data_with_train(y_reshaped)
-        y = y_reshaped.reshape(y.shape)
+    # if scale:
+    #     X_reshaped = reshape_data_from_keras_to_2D(X)[0]
+    #     X_reshaped, X_scaler = scale_data_with_train(X_reshaped)
+    #     X = X_reshaped.reshape(X.shape)
+    #     y_reshaped = reshape_data_from_keras_to_2D(y)[0]
+    #     y_reshaped, y_scaler = scale_data_with_train(y_reshaped)
+    #     y = y_reshaped.reshape(y.shape)
     best_model.fit(X, y, epochs=epochs, batch_size=best_batch_size, verbose=keras_verbose)
     if plot_losses:
         for loss_plotter in loss_plotters.values():

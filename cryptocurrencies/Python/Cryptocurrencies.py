@@ -7,7 +7,7 @@ def main():
     # `gpu_mem_frac` is the fraction of GPU memory dedicated to the TensorFlow backend
     # of Keras and may need to change based on your system and settings used - notably batch size in model training.
     # For reference, I run this script with a GTX 1080 Ti, which has 11 GiB of memory.
-    keras_init(gpu_mem_frac=0.6)
+    keras_init(gpu_mem_frac=0.7)
 
     ### Imports ###
 
@@ -82,13 +82,13 @@ def main():
     # TODO (model_loading_1): Create boolean variable `train_models_not_present` which specifies whether to train models missing
     # TODO (model_loading_1): on secondary storage when `load_models == True`.
     # TODO (model_loading_2): Detect if `load_models = False` will throw an error before running. If so, give a clear error message.
-    load_models = False # Whether or not to load models that have already been created by this program.
+    load_models = True # Whether or not to load models that have already been created by this program.
     # The number of logical processors to use during grid search.
     num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
-    num_cv_splits = 4 # The number of folds in cross validation.
+    num_cv_splits = 3 # The number of folds in cross validation.
     # TODO: Add a parameter to determine whether or not param set occurrences are pickled?
     # Whether or not to use cross validation in Keras grid search.
-    keras_use_cv_grd_srch = True
+    keras_use_cv_grd_srch = False
     # The level of verbosity in `keras_reg_grid_search()`.
     keras_grd_srch_verbose = 1
 
@@ -401,7 +401,6 @@ def main():
         y = subset_prices_nonan.values[window_size:]
 
         # Feature Scaling
-        # TODO: Scale (here and everywhere) `X` and `y` on a per-asset basis?
         X_scaler = StandardScaler()
         X_scaled = X_scaler.fit_transform(X)
         y_scaler = StandardScaler()
@@ -414,7 +413,7 @@ def main():
         # model_neural_net = MLPRegressor()
         # The number of neurons in the hidden layers will be around half the mean of the number of inputs and outputs.
         # hidden_layer_median_size = int(round((num_features + subset_num_currencies)/2))
-        single_hidden_layer_size = 128
+        single_hidden_layer_size = 96
         neural_net_hidden_layer_sizes = [(single_hidden_layer_size, single_hidden_layer_size // 8)]
         # params_neural_net = {'hdn_lyr_szs_nn_collective': neural_net_hidden_layer_sizes,
         #                      'max_iter': [1000000],
@@ -452,7 +451,7 @@ def main():
         #                      'model__batch_size': [100]}
         # TODO: Choose hidden layer sizes according to https://stats.stackexchange.com/a/1097/191200
         frst_hdn_lyr_sz_nn_single_asset = 512
-        frst_hdn_lyr_sz_nn_collective = 1024
+        frst_hdn_lyr_sz_nn_collective = 512
         # three_hidden_layers = (first_hidden_layer_size_collective, first_hidden_layer_size_collective // 2,
         #                        first_hidden_layer_size_collective // 4)
         # four_hidden_layers = three_hidden_layers + (first_hidden_layer_size_collective // 8,)
@@ -473,25 +472,25 @@ def main():
                                       #frst_hdn_lyr_sz_nn_collective // 16, frst_hdn_lyr_sz_nn_collective // 64)]
 
         keras_params_nn = {
-             'batch_size': [64],  # A too large batch size results in device OOMs.
+             'batch_size': [128],  # A too large batch size results in device OOMs.
              'hidden_layer_sizes': None, # Added later to handle single asset and collective asset models separately.
              'hidden_layer_type': ['LSTM'],
-             'dropout_rate': [0.1, 0.3],
+             'dropout_rate': [0.2],
              'optimizer': [Adam],
              # Parameters for Adam optimizer.
-             'lr': [1e-3],
+             'lr': [2e-3],
              'beta_1': [0.9],#[0.7, 0.9],
              'beta_2': [0.999]}#[0.9, 0.999]}
         keras_param_names = list(keras_params_nn.keys())
-        # The number of epochs to train for in grid search.
+        # The number of epochs to train for in grid search. There must be at least 2 epochs for loss plotting.
         # NOTE: This will likely impact run time much more significantly than `keras_nn_epochs` by a factor of
         # the number of parameter combinations in `keras_params_nn`, further multiplied by `n_splits` used
         # for cross validation (the `cv` object below) if `keras_use_cv_grd_srch`.
-        keras_nn_epochs_grd_srch = 20
+        keras_nn_epochs_grd_srch = 10
         keras_nn_epochs_grd_srch = max(2, keras_nn_epochs_grd_srch) \
             if not keras_use_cv_grd_srch & make_keras_loss_plots else keras_nn_epochs_grd_srch
         # The number of epochs to train for without or after cross validation.
-        keras_nn_epochs = 20
+        keras_nn_epochs = 10
 
         # make_keras_picklable()
         # print(type(KerasRegressor(build_fn=create_keras_model)))
@@ -634,12 +633,12 @@ def main():
             model_path, model_type = (None, None)
 
             # Data for only this cryptocurrency.
-            X_subset = get_X_subset(X, currency_index, subset_num_currencies)
-            y_subset = get_y_subset(y, currency_index)
+            X_subset_scaled = get_X_subset(X_scaled, currency_index, subset_num_currencies)
+            y_subset_scaled = get_y_subset(y_scaled, currency_index)
 
             # Feature Scaling
-            X_subset_scaled = StandardScaler().fit_transform(X_subset)
-            y_subset_scaled = StandardScaler().fit_transform(y_subset)
+            # X_subset_scaled = StandardScaler().fit_transform(X_subset)
+            # y_subset_scaled = StandardScaler().fit_transform(y_subset)
 
             if not load_models:
                 currency_label_and_ticker = subset_currencies_labels_and_tickers[currency_index]
@@ -658,12 +657,12 @@ def main():
                     # Keras needs to be trained differently than scikit-learn models even though Keras models can
                     # be "wrapped" to function as such. This is required (AFAIK) to save them to secondary storage.
                     if model_to_test == keras_model_nn:
-                        X_subset_dict = reshape_data_from_2D_to_keras(param_grid, 1, X_subset)
+                        X_subset_scaled_dict = reshape_data_from_2D_to_keras(param_grid, 1, X_subset_scaled)
                         model, score, param_set = \
-                            keras_reg_grid_search(X_subset_dict, y_subset, build_fn=create_keras_regressor, output_dim=1,
-                                                  param_grid=param_grid, epochs=keras_nn_epochs,
+                            keras_reg_grid_search(X_subset_scaled_dict, y_subset_scaled, build_fn=create_keras_regressor,
+                                                  output_dim=1, param_grid=param_grid, epochs=keras_nn_epochs,
                                                   cv_epochs=keras_nn_epochs_grd_srch, cv=keras_cv,
-                                                  scoring=r2_score, scale=True, verbose=keras_grd_srch_verbose,
+                                                  scoring=r2_score, verbose=keras_grd_srch_verbose,
                                                   plot_losses=make_keras_loss_plots, plotting_dir=keras_figures_window_subdir,
                                                   figure_title_prefix='{} (window size {})'.format(currency_label, window_size),
                                                   figure_kwargs={'figsize':figure_size, 'dpi':figure_dpi})
@@ -737,12 +736,12 @@ def main():
                 param_grid['hidden_layer_sizes'] = hdn_lyr_szs_nn_collective
                 if model_to_test == keras_model_nn:
                     # The data has different formats based on parameter values in parameter sets.
-                    X_dict = reshape_data_from_2D_to_keras(param_grid, subset_num_currencies, X)
+                    X_scaled_dict = reshape_data_from_2D_to_keras(param_grid, subset_num_currencies, X_scaled)
                     model, score, param_set = \
-                        keras_reg_grid_search(X_dict, y, build_fn=create_keras_regressor, output_dim=subset_num_currencies,
-                                              param_grid=param_grid, epochs=keras_nn_epochs,
-                                              cv_epochs=keras_nn_epochs_grd_srch, cv=keras_cv, scoring=r2_score,
-                                              scale=True, verbose=keras_grd_srch_verbose,
+                        keras_reg_grid_search(X_scaled_dict, y_scaled, build_fn=create_keras_regressor,
+                                              output_dim=subset_num_currencies, param_grid=param_grid,
+                                              epochs=keras_nn_epochs, cv_epochs=keras_nn_epochs_grd_srch,
+                                              cv=keras_cv, scoring=r2_score, verbose=keras_grd_srch_verbose,
                                               plot_losses=make_keras_loss_plots, plotting_dir=keras_figures_dir,
                                               figure_title_prefix='Collective (window size {})'.format(window_size),
                                               figure_kwargs={'figsize': figure_size, 'dpi': figure_dpi})
@@ -849,7 +848,7 @@ def main():
                 param_set = collective_assets_model_param_set
                 # Handle any reshaping for models that require it.
                 if type(collective_assets_model) is keras.models.Sequential:
-                    X = reshape_data_from_2D_to_keras(param_set, 7, X)
+                    X = reshape_data_from_2D_to_keras(param_set, subset_num_currencies, X)
                 collective_assets_model_pred = collective_assets_model.predict(X)
                 # print("X.shape:", X.shape)
                 # print("collective_assets_model_pred.shape:", collective_assets_model_pred.shape)
@@ -977,7 +976,8 @@ def main():
             given_prices = subset_prices_nonan.values[-window_size:].flatten()
             single_asset_models_extrapolation_X[0] = given_prices
             single_asset_models_extrapolation_y[0] = \
-                single_asset_models_predict(single_asset_models_extrapolation_X[0].reshape(1, -1))
+                y_scaler.inverse_transform(single_asset_models_predict(
+                    single_asset_models_extrapolation_X[0].reshape(1, -1)))
             for currency_index in range(1, window_size):
                 given_prices = subset_prices_nonan.values[-window_size + currency_index:].flatten()
                 single_asset_models_previous_predicted_prices = \
@@ -985,7 +985,8 @@ def main():
                 single_asset_models_extrapolation_X[currency_index] = \
                     np.concatenate((given_prices, single_asset_models_previous_predicted_prices))
                 single_asset_models_extrapolation_y[currency_index] = \
-                    single_asset_models_predict(single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten()
+                    y_scaler.inverse_transform(single_asset_models_predict(
+                        single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten())
             # Remaining windows contain only predicted values (predicting based on previous predictions).
             for currency_index in range(window_size, model_num_extrapolation_times):
                 single_asset_models_previous_predicted_prices = \
@@ -993,7 +994,8 @@ def main():
                 single_asset_models_extrapolation_X[currency_index] = \
                     single_asset_models_previous_predicted_prices
                 single_asset_models_extrapolation_y[currency_index] = \
-                    single_asset_models_predict(single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten()
+                    y_scaler.inverse_transform(single_asset_models_predict(
+                        single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten())
             single_asset_models = [None] * len(single_asset_models)
             K.clear_session()
 
@@ -1006,7 +1008,8 @@ def main():
             given_prices = subset_prices_nonan.values[-window_size:].flatten()
             collective_assets_model_extrapolation_X[0] = given_prices
             collective_assets_model_extrapolation_y[0] = \
-                collective_assets_model_predict(collective_assets_model_extrapolation_X[0].reshape(1, -1))
+                y_scaler.inverse_transform(collective_assets_model_predict(
+                    collective_assets_model_extrapolation_X[0].reshape(1, -1)))
             for currency_index in range(1, window_size):
                 given_prices = subset_prices_nonan.values[-window_size + currency_index:].flatten()
                 collective_assets_model_previous_predicted_prices = \
@@ -1014,16 +1017,16 @@ def main():
                 collective_assets_model_extrapolation_X[currency_index] = \
                     np.concatenate((given_prices, collective_assets_model_previous_predicted_prices))
                 collective_assets_model_extrapolation_y[currency_index] = \
-                    collective_assets_model_predict(
-                        collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten()
+                    y_scaler.inverse_transform(collective_assets_model_predict(
+                        collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten())
             for currency_index in range(window_size, model_num_extrapolation_times):
                 collective_assets_model_previous_predicted_prices = \
                     collective_assets_model_extrapolation_y[currency_index - window_size:currency_index].flatten()
                 collective_assets_model_extrapolation_X[currency_index] = \
                     collective_assets_model_previous_predicted_prices
                 collective_assets_model_extrapolation_y[currency_index] = \
-                    collective_assets_model_predict(
-                        collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten()
+                    y_scaler.inverse_transform(collective_assets_model_predict(
+                        collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten())
             collective_assets_model = None
             K.clear_session()
 
