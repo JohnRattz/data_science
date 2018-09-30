@@ -145,7 +145,7 @@ def extract_non_optimizer_params(optimizer, param_set):
         non_optimizer_params[non_optimizer_param_name] = param_set[non_optimizer_param_name]
     return non_optimizer_params
 
-def keras_reg_grid_search(X_dict, y, build_fn, output_dim, param_grid, epochs, cv_epochs=None, cv=None,
+def keras_reg_grid_search(X_dict, y, build_fn, param_grid, epochs, cv_epochs=None, cv=None,
                           scoring=r2_score, verbose=0, plot_losses=False,
                           plotting_dir=None, figure_title_prefix="", figure_kwargs={}, plotting_kwargs={}):
     """
@@ -156,8 +156,6 @@ def keras_reg_grid_search(X_dict, y, build_fn, output_dim, param_grid, epochs, c
 
     Parameters
     ----------
-    output_dim: int
-        The number of outputs of the neural network.
     param_grid: dict
         A dictionary of parameter names and values to be tested.
         Must contain 'batch_size' and 'hidden_layer_sizes` entries.
@@ -201,6 +199,7 @@ def keras_reg_grid_search(X_dict, y, build_fn, output_dim, param_grid, epochs, c
             # For Keras RNNs, the shape is (batch_size, timesteps, input_dim).
             # See https://keras.io/layers/recurrent/#rnn for more information.
             input_shape = X_dict[hidden_layer_type].shape[1:]
+        output_dim = y.shape[1]
         hidden_layer_sizes = model_building_param_set.pop('hidden_layer_sizes', None)
         model = build_fn(input_shape=input_shape, hidden_layer_sizes=hidden_layer_sizes,
                          output_dim=output_dim, optimizer_params=optimizer_params, **model_building_param_set)

@@ -7,7 +7,7 @@ def main():
     # `gpu_mem_frac` is the fraction of GPU memory dedicated to the TensorFlow backend
     # of Keras and may need to change based on your system and settings used - notably batch size in model training.
     # For reference, I run this script with a GTX 1080 Ti, which has 11 GiB of memory.
-    keras_init(gpu_mem_frac=0.7)
+    keras_init(gpu_mem_frac=0.35)
 
     ### Imports ###
 
@@ -51,6 +51,10 @@ def main():
     from machine_learning import create_keras_regressor, keras_reg_grid_search, keras_convert_optimizer_obj_to_name, \
                                  reshape_data_from_2D_to_keras
 
+
+    # Model Predictions
+    from functools import partial
+
     # Custom utility functions
     # sys.path.insert(0, '../../' + utilities_dir)
     from analysis import find_Markowitz_optimal_portfolio_weights, calc_CAPM_betas, CAPM_RoR, run_monte_carlo_financial_simulation
@@ -82,7 +86,7 @@ def main():
     # TODO (model_loading_1): Create boolean variable `train_models_not_present` which specifies whether to train models missing
     # TODO (model_loading_1): on secondary storage when `load_models == True`.
     # TODO (model_loading_2): Detect if `load_models = False` will throw an error before running. If so, give a clear error message.
-    load_models = True # Whether or not to load models that have already been created by this program.
+    load_models = False # Whether or not to load models that have already been created by this program.
     # The number of logical processors to use during grid search.
     num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
     num_cv_splits = 3 # The number of folds in cross validation.
@@ -95,12 +99,12 @@ def main():
     # Plotting Settings
     # TODO: Ensure this logic works even if using no Keras models.
     # Whether or not to plot analysis plots.
-    make_analysis_plots = True
+    make_analysis_plots = False
     # Whether or not to plot prediction plots.
     make_prediction_plots = True
     # Whether or not to plot loss for Keras neural networks over time during training when not using cross validation.
     # This setting only matters when `keras_use_cv_grd_srch == False`.
-    make_keras_loss_plots = True
+    make_keras_loss_plots = False
     # Whether or not to make plots of parameter set occurrences for Keras neural networks.
     # These figures are used to visualize the most successful parameter sets for Keras neural networks.
     make_keras_param_set_occurrence_plots = True
@@ -392,19 +396,25 @@ def main():
     ### Main Loop ###
     for window_size_ind, window_size in enumerate(window_sizes):
         # Data Extraction
-        # TODO: Don't reshape to overlapping windows if using RNNs.
-        num_windows = len(subset_prices_nonan) - window_size
+        num_windows = len(subset_prices_nonan) - 2*window_size + 1
         num_features = subset_num_currencies * window_size
         X = np.empty((num_windows, num_features), dtype=np.float64)
+        y = np.empty((num_windows, num_features), dtype=np.float64)
         for window_index in range(num_windows):
-            X[window_index,:] = subset_prices_nonan[window_index:window_index + window_size].values.flatten()
-        y = subset_prices_nonan.values[window_size:]
+            X[window_index,:] = \
+                subset_prices_nonan[window_index:window_index + window_size].values.flatten()
+            y[window_index,:] = \
+                subset_prices_nonan[window_index + window_size:window_index + 2*window_size].values.flatten()
+        # print("X[{}], X.shape:".format(window_size), X[window_size], X.shape)
+        # print("y[{}], y.shape:".format(0), y[0], y.shape)
 
         # Feature Scaling
         X_scaler = StandardScaler()
         X_scaled = X_scaler.fit_transform(X)
         y_scaler = StandardScaler()
         y_scaled = y_scaler.fit_transform(y)
+        # print("X_scaled[{}], X_scaled.shape:".format(window_size), X_scaled[window_size], X_scaled.shape)
+        # print("y_scaled[{}], y_scaled.shape:".format(0), y_scaled[0], y_scaled.shape)
 
         ### Model Specifications ##
 
@@ -466,13 +476,13 @@ def main():
         #                        first_hidden_layer_size_collective // 16,
         #                        first_hidden_layer_size_collective // 64)]
 
-        hdn_lyr_szs_nn_single_asset = [(frst_hdn_lyr_sz_nn_single_asset, frst_hdn_lyr_sz_nn_single_asset // 4)]#,
+        hdn_lyr_szs_nn_single_asset = [(frst_hdn_lyr_sz_nn_single_asset, frst_hdn_lyr_sz_nn_single_asset)]#,
                                         #frst_hdn_lyr_sz_nn_single_asset // 16, frst_hdn_lyr_sz_nn_single_asset // 64)]
-        hdn_lyr_szs_nn_collective = [(frst_hdn_lyr_sz_nn_collective, frst_hdn_lyr_sz_nn_collective // 4)]#,
+        hdn_lyr_szs_nn_collective = [(frst_hdn_lyr_sz_nn_collective, frst_hdn_lyr_sz_nn_collective)]#,
                                       #frst_hdn_lyr_sz_nn_collective // 16, frst_hdn_lyr_sz_nn_collective // 64)]
 
         keras_params_nn = {
-             'batch_size': [128],  # A too large batch size results in device OOMs.
+             'batch_size': [64],  # A too large batch size results in device OOMs.
              'hidden_layer_sizes': None, # Added later to handle single asset and collective asset models separately.
              'hidden_layer_type': ['LSTM'],
              'dropout_rate': [0.2],
@@ -591,7 +601,7 @@ def main():
 
                 Parameters
                 ----------
-                X: np.ndarray
+                X: numpy.ndarray
                     The data to extract the desired subset from.
                 asset_index: int
                     The asset data to retrieve.
@@ -600,19 +610,22 @@ def main():
                 """
                 return X[:, asset_index::num_assets]
 
-            def get_y_subset(y, asset_index):
+            def get_y_subset(y, asset_index, num_assets):
                 """
                 Given a 2D feature matrix `y` of asset values,
                 return the subset for a given asset by index.
 
                 Parameters
                 ----------
-                y: np.ndarray
+                y: numpy.ndarray
                     The data to extract the desired subset from.
                 asset_index: int
                     The asset data to retrieve.
+                num_assets: int
+                    The total number of assets - needed to determine the stride.
                 """
-                return y[:, asset_index].reshape(-1, 1)
+                # return y[:, asset_index].reshape(-1, 1)
+                return y[:, asset_index::num_assets]
 
             currency_label = subset_currencies_labels[currency_index]
             currency_label_no_spaces = currency_label.replace(' ', '_')
@@ -634,7 +647,11 @@ def main():
 
             # Data for only this cryptocurrency.
             X_subset_scaled = get_X_subset(X_scaled, currency_index, subset_num_currencies)
-            y_subset_scaled = get_y_subset(y_scaled, currency_index)
+            y_subset_scaled = get_y_subset(y_scaled, currency_index, subset_num_currencies)
+            # print("X_subset_scaled.shape, y_subset_scaled.shape:",
+            #       X_subset_scaled.shape, y_subset_scaled.shape)
+            # print("X_subset_scaled[{}]:".format(window_size), X_subset_scaled[window_size], X_subset_scaled.shape)
+            # print("y_subset_scaled[{}]:".format(0), y_subset_scaled[0], y_subset_scaled.shape)
 
             # Feature Scaling
             # X_subset_scaled = StandardScaler().fit_transform(X_subset)
@@ -658,9 +675,10 @@ def main():
                     # be "wrapped" to function as such. This is required (AFAIK) to save them to secondary storage.
                     if model_to_test == keras_model_nn:
                         X_subset_scaled_dict = reshape_data_from_2D_to_keras(param_grid, 1, X_subset_scaled)
+                        # print("y_subset_scaled.shape[1]:", y_subset_scaled.shape[1])
                         model, score, param_set = \
                             keras_reg_grid_search(X_subset_scaled_dict, y_subset_scaled, build_fn=create_keras_regressor,
-                                                  output_dim=1, param_grid=param_grid, epochs=keras_nn_epochs,
+                                                  param_grid=param_grid, epochs=keras_nn_epochs,
                                                   cv_epochs=keras_nn_epochs_grd_srch, cv=keras_cv,
                                                   scoring=r2_score, verbose=keras_grd_srch_verbose,
                                                   plot_losses=make_keras_loss_plots, plotting_dir=keras_figures_window_subdir,
@@ -739,7 +757,7 @@ def main():
                     X_scaled_dict = reshape_data_from_2D_to_keras(param_grid, subset_num_currencies, X_scaled)
                     model, score, param_set = \
                         keras_reg_grid_search(X_scaled_dict, y_scaled, build_fn=create_keras_regressor,
-                                              output_dim=subset_num_currencies, param_grid=param_grid,
+                                              param_grid=param_grid,
                                               epochs=keras_nn_epochs, cv_epochs=keras_nn_epochs_grd_srch,
                                               cv=keras_cv, scoring=r2_score, verbose=keras_grd_srch_verbose,
                                               plot_losses=make_keras_loss_plots, plotting_dir=keras_figures_dir,
@@ -821,7 +839,10 @@ def main():
                 X: numpy.ndarray
                     The feature matrix to predict for.
                 """
-                single_asset_models_pred = np.empty((len(X), subset_num_currencies), dtype=np.float64)
+                # num_time_indices = int(np.ceil(len(X)/window_size))
+                # single_asset_models_pred = np.empty((len(X),subset_num_currencies), dtype=np.float64)
+                single_asset_models_pred = np.empty_like(X)
+                # print("single_asset_models_pred:", single_asset_models_pred.shape)
                 for currency_index in range(subset_num_currencies):
                     param_set = single_asset_models_param_sets[currency_index]
                     X_subset = get_X_subset(X, currency_index, subset_num_currencies)
@@ -829,7 +850,9 @@ def main():
                     # Handle any reshaping for models that require it.
                     if type(single_asset_model) is keras.models.Sequential:
                         X_subset = reshape_data_from_2D_to_keras(param_set, 1, X_subset)
-                    single_asset_models_pred[:, currency_index] = single_asset_model.predict(X_subset).flatten()
+                    # print("X_subset:", X_subset.shape)
+                    # print("single_asset_model.predict(X_subset):", single_asset_model.predict(X_subset).shape)
+                    single_asset_models_pred[:, currency_index::subset_num_currencies] = single_asset_model.predict(X_subset)
                 # print("X.shape:", X.shape)
                 # print("single_asset_models_pred.shape:", single_asset_models_pred.shape)
                 return single_asset_models_pred
@@ -857,6 +880,7 @@ def main():
             def load_model(model_type, model_path):
                 """
                 Loads a model.
+
                 Parameters
                 ----------
                 model_type: type
@@ -886,16 +910,101 @@ def main():
                 nonlocal collective_assets_model
                 collective_assets_model = load_model(collective_assets_model_type, collective_assets_model_path)
 
+            def fmt_pred_for_vis(predictions, num_times_excess, num_times_expected, num_features):
+                """
+                Formats predictions for visualization. The last window overlaps the second last window,
+                so we need to remove the overlapping predictions.
+
+                Parameters
+                ----------
+                predictions: numpy.ndarray
+                    A 2D NumPy array in which rows are windows of data that don't overlap each other,
+                    except for the last and second last windows.
+                num_times_excess: int
+                    The number of excess entries in the predictions.
+                num_times_expected: int
+                    The number of entries expected in the predictions.
+                num_features: int
+                    The number of features in the output (i.e. number of columns).
+
+                Returns
+                -------
+                predictions_fmt: numpy.ndarray
+                    A 2D NumPy array of predictions - with features in rows and entries in columns.
+                """
+                # print(predictions.shape)
+                # print(predictions[:-1].shape)
+                # print(predictions[-1, num_times_excess:].shape)
+                return np.concatenate(
+                    [*predictions[:-1], predictions[-1, num_times_excess*num_features:]])\
+                    .reshape((num_times_expected, num_features))
+
+            # Create version of `fmt_pred_for_vis()` for predictions for available data (validation).
+            # Because we are windowing, we only need some windows to get all possible predictions for available data.
+            X_scaled_fmt_for_pred = X_scaled[::window_size]
+            # print("y.shape, window_size:", y.shape, window_size)
+            y_fmt_for_vis = y[::window_size]
+            # print("Before, X_scaled_fmt_for_pred.shape, y_fmt_for_pred.shape:",
+            #       X_scaled_fmt_for_pred.shape, y_fmt_for_vis.shape)
+            # If `X` and `y` can't be exactly covered with non-overlapping windows,
+            # we need to handle the last window specially - here, we retrieve its data.
+            if X_scaled.shape[0] % window_size != 0:
+                # print("X_scaled_fmt_for_pred:", X_scaled_fmt_for_pred.shape)
+                # print("X_scaled[-window_size]:", X_scaled[[-window_size]].shape)
+                X_scaled_fmt_for_pred = np.concatenate([X_scaled_fmt_for_pred, X_scaled[[-1]]])#-window_size]]])
+                y_fmt_for_vis = np.concatenate([y_fmt_for_vis, y[[-1]]])#-window_size]]])
+            # print("After, X_scaled_fmt_for_pred.shape, y_fmt_for_pred.shape:",
+            #       X_scaled_fmt_for_pred.shape, y_fmt_for_vis.shape)
+            # The number of points that will be in the predictions for available data.
+            pred_num_times = int(np.prod(np.array(X_scaled_fmt_for_pred.shape)) / subset_num_currencies)
+            # The expected number of points in the predictions for available data.
+            pred_num_times_expected = num_non_nan_times - window_size
+            # The excess number of points that will be in the predictions for available data.
+            pred_num_times_excess = pred_num_times - pred_num_times_expected
+            # print("y_pred_num_times:", y_pred_num_times)
+            # print("y_pred_num_times_expected:", y_pred_num_times_expected)
+            # print("y_pred_num_times_excess:", y_pred_num_times_excess)
+            fmt_pred_for_vis_val = \
+                partial(fmt_pred_for_vis, num_times_excess=pred_num_times_excess,
+                        num_times_expected=pred_num_times_expected, num_features=subset_num_currencies)
+
+            # Create version of `fmt_pred_for_vis()` for predictions for extrapolated data (predictions).
+            # The number of windows in the extrapolation outputs before formatting for visualization.
+            num_orig_extrp_rows = int(np.ceil(model_num_extrapolation_times / window_size))
+            # The shape of extrapolation data before formatting for visualization.
+            extrp_y_shape = (num_orig_extrp_rows, subset_num_currencies * window_size)
+            # The number of points that will be in the extrapolation predictions for available data.
+            extrp_pred_num_times = int(num_orig_extrp_rows * window_size)
+            #np.prod(np.array(extrp_y_shape)) / subset_num_currencies)
+            # The expected number of points in the extrapolation predictions for available data.
+            extrp_pred_num_times_expected = model_num_extrapolation_times
+            # The excess number of points that will be in the extrapolation predictions for available data.
+            extrp_pred_num_times_excess = extrp_pred_num_times - extrp_pred_num_times_expected
+            # print("extrp_pred_num_times:", extrp_pred_num_times)
+            # print("extrp_pred_num_times_expected:", extrp_pred_num_times_expected)
+            # print("extrp_pred_num_times_excess:", extrp_pred_num_times_excess)
+            fmt_pred_for_vis_extrp = \
+                partial(fmt_pred_for_vis, num_times_excess=extrp_pred_num_times_excess,
+                        num_times_expected=extrp_pred_num_times_expected, num_features=subset_num_currencies)
+
+            y_fmt_for_vis = fmt_pred_for_vis_val(y_fmt_for_vis) # Format available data for visualization.
+
             load_single_asset_models()
-            single_asset_models_pred = y_scaler.inverse_transform(single_asset_models_predict(X_scaled))
+            single_asset_models_pred = \
+                fmt_pred_for_vis_val(y_scaler.inverse_transform(single_asset_models_predict(X_scaled_fmt_for_pred)))
+            # print("single_asset_models_pred:", single_asset_models_pred.shape)
             single_asset_models = [None]*len(single_asset_models) # Remove the models from memory.
             K.clear_session()
 
             # Collective Model Predictions
             load_collective_assets_model()
-            collective_assets_model_pred = y_scaler.inverse_transform(collective_assets_model_predict(X_scaled))
+            collective_assets_model_pred = \
+                fmt_pred_for_vis_val(y_scaler.inverse_transform(collective_assets_model_predict(X_scaled_fmt_for_pred)))
+            # print("collective_assets_model_pred:", collective_assets_model_pred.shape)
             collective_assets_model = None
             K.clear_session()
+
+            # print("date_times[window_size:]:", date_times[window_size:].shape)
 
             ### Plotting Predictions ###
             # The colors of lines for various things.
@@ -921,7 +1030,7 @@ def main():
                 # Collective plot
                 collective_ax_current = collective_fig.add_subplot(subset_num_rows, subset_num_cols, currency_index + 1)
                 # Actual values
-                collective_ax_current.plot(date_times[window_size:], y[:, currency_index],
+                collective_ax_current.plot(date_times[window_size:], y_fmt_for_vis[:, currency_index],
                                            color=actual_values_color, alpha=0.5, label=actual_values_label)
                 # Single Asset Model Predictions
                 collective_ax_current.plot(date_times[window_size:], single_asset_models_pred[:, currency_index],
@@ -938,7 +1047,7 @@ def main():
                 indiv_fig = plt.figure(figsize=(12, 6))
                 indiv_fig_ax = indiv_fig.add_subplot(111)
                 # Actual values
-                indiv_fig_ax.plot(date_times[window_size:], y[:, currency_index],
+                indiv_fig_ax.plot(date_times[window_size:], y_fmt_for_vis[:, currency_index],
                                   color=actual_values_color, alpha=0.5, label=actual_values_label)
                 # Single Asset Model Predictions
                 indiv_fig_ax.plot(date_times[window_size:], single_asset_models_pred[:, currency_index],
@@ -968,67 +1077,99 @@ def main():
 
             # Single Asset Model Predictions
             load_single_asset_models()
-            single_asset_models_extrapolation_X = \
-                np.zeros((model_num_extrapolation_times, subset_num_currencies * window_size), dtype=np.float64)
             single_asset_models_extrapolation_y = \
-                np.zeros((model_num_extrapolation_times, subset_num_currencies), dtype=np.float64)
+                np.zeros((extrp_y_shape), dtype=np.float64)
+            # print("model_num_extrapolation_times:", model_num_extrapolation_times)
+            # print("single_asset_models_extrapolation_y:", single_asset_models_extrapolation_y.shape)
             # First `window_size` windows contain known values.
-            given_prices = subset_prices_nonan.values[-window_size:].flatten()
-            single_asset_models_extrapolation_X[0] = given_prices
+            # given_prices = subset_prices_nonan.values[-window_size:].flatten()
+            # given_prices = X_scaled[-1]
+            # print("given_prices:", given_prices.shape)
+            # single_asset_models_extrapolation_X[0] = given_prices
+            # print("single_asset_models_extrapolation_X[0].reshape(1,-1):",
+            #       single_asset_models_extrapolation_X[0].reshape(1, -1)[:subset_num_currencies],
+            #       single_asset_models_extrapolation_X[0].reshape(1, -1)[-subset_num_currencies:],)
+            # Predict future values based on a window of the last given values.
             single_asset_models_extrapolation_y[0] = \
                 y_scaler.inverse_transform(single_asset_models_predict(
-                    single_asset_models_extrapolation_X[0].reshape(1, -1)))
-            for currency_index in range(1, window_size):
-                given_prices = subset_prices_nonan.values[-window_size + currency_index:].flatten()
-                single_asset_models_previous_predicted_prices = \
-                    single_asset_models_extrapolation_y[:currency_index].flatten()
-                single_asset_models_extrapolation_X[currency_index] = \
-                    np.concatenate((given_prices, single_asset_models_previous_predicted_prices))
-                single_asset_models_extrapolation_y[currency_index] = \
+                    X_scaled[-1].reshape(1,-1)))
+            # print("single_asset_models_extrapolation_y[0]:", single_asset_models_extrapolation_y[0])
+            # Predict future values based on windows of previously predicted future values.
+            for window_index in range(1, len(single_asset_models_extrapolation_y)):
+                single_asset_models_extrapolation_y[window_index] = \
                     y_scaler.inverse_transform(single_asset_models_predict(
-                        single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten())
+                        X_scaler.transform(single_asset_models_extrapolation_y[window_index-1].reshape(1,-1))))
+            # single_asset_models_extrapolation_X[0] = given_prices
+            # single_asset_models_extrapolation_y[0] = \
+            #     y_scaler.inverse_transform(single_asset_models_predict(
+            #         single_asset_models_extrapolation_X[0].reshape(1, -1)))
+            # for currency_index in range(1, window_size):
+            #     given_prices = subset_prices_nonan.values[-window_size + currency_index:].flatten()
+            #     single_asset_models_previous_predicted_prices = \
+            #         single_asset_models_extrapolation_y[:currency_index].flatten()
+            #     single_asset_models_extrapolation_X[currency_index] = \
+            #         np.concatenate((given_prices, single_asset_models_previous_predicted_prices))
+            #     single_asset_models_extrapolation_y[currency_index] = \
+            #         y_scaler.inverse_transform(single_asset_models_predict(
+            #             single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten())
             # Remaining windows contain only predicted values (predicting based on previous predictions).
-            for currency_index in range(window_size, model_num_extrapolation_times):
-                single_asset_models_previous_predicted_prices = \
-                    single_asset_models_extrapolation_y[currency_index - window_size:currency_index].flatten()
-                single_asset_models_extrapolation_X[currency_index] = \
-                    single_asset_models_previous_predicted_prices
-                single_asset_models_extrapolation_y[currency_index] = \
-                    y_scaler.inverse_transform(single_asset_models_predict(
-                        single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten())
+            # for currency_index in range(window_size, model_num_extrapolation_times):
+            #     single_asset_models_previous_predicted_prices = \
+            #         single_asset_models_extrapolation_y[currency_index - window_size:currency_index].flatten()
+            #     single_asset_models_extrapolation_X[currency_index] = \
+            #         single_asset_models_previous_predicted_prices
+            #     single_asset_models_extrapolation_y[currency_index] = \
+            #         y_scaler.inverse_transform(single_asset_models_predict(
+            #             single_asset_models_extrapolation_X[currency_index].reshape(1, -1)).flatten())
             single_asset_models = [None] * len(single_asset_models)
             K.clear_session()
+            # Format the extrapolations for visualization.
+            single_asset_models_extrapolation_y = fmt_pred_for_vis_extrp(single_asset_models_extrapolation_y)
 
             # Collective Assets Model Predictions
             load_collective_assets_model()
-            collective_assets_model_extrapolation_X = \
-                np.zeros((model_num_extrapolation_times, subset_num_currencies * window_size), dtype=np.float64)
             collective_assets_model_extrapolation_y = \
-                np.zeros((model_num_extrapolation_times, subset_num_currencies), dtype=np.float64)
-            given_prices = subset_prices_nonan.values[-window_size:].flatten()
-            collective_assets_model_extrapolation_X[0] = given_prices
+                np.zeros((int(np.ceil(model_num_extrapolation_times / window_size)),
+                          subset_num_currencies * window_size), dtype=np.float64)
+            # collective_assets_model_extrapolation_X = \
+            #     np.zeros((model_num_extrapolation_times, subset_num_currencies * window_size), dtype=np.float64)
+            # collective_assets_model_extrapolation_y = \
+            #     np.zeros((model_num_extrapolation_times, subset_num_currencies), dtype=np.float64)
             collective_assets_model_extrapolation_y[0] = \
                 y_scaler.inverse_transform(collective_assets_model_predict(
-                    collective_assets_model_extrapolation_X[0].reshape(1, -1)))
-            for currency_index in range(1, window_size):
-                given_prices = subset_prices_nonan.values[-window_size + currency_index:].flatten()
-                collective_assets_model_previous_predicted_prices = \
-                    collective_assets_model_extrapolation_y[:currency_index].flatten()
-                collective_assets_model_extrapolation_X[currency_index] = \
-                    np.concatenate((given_prices, collective_assets_model_previous_predicted_prices))
-                collective_assets_model_extrapolation_y[currency_index] = \
+                    X_scaled[-1].reshape(1, -1)))
+            # print("collective_assets_model_extrapolation_y[0]:", collective_assets_model_extrapolation_y[0])
+            # Predict future values based on windows of previously predicted future values.
+            for window_index in range(1, len(collective_assets_model_extrapolation_y)):
+                collective_assets_model_extrapolation_y[window_index] = \
                     y_scaler.inverse_transform(collective_assets_model_predict(
-                        collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten())
-            for currency_index in range(window_size, model_num_extrapolation_times):
-                collective_assets_model_previous_predicted_prices = \
-                    collective_assets_model_extrapolation_y[currency_index - window_size:currency_index].flatten()
-                collective_assets_model_extrapolation_X[currency_index] = \
-                    collective_assets_model_previous_predicted_prices
-                collective_assets_model_extrapolation_y[currency_index] = \
-                    y_scaler.inverse_transform(collective_assets_model_predict(
-                        collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten())
+                        X_scaler.transform(collective_assets_model_extrapolation_y[window_index - 1].reshape(1, -1))))
+            # given_prices = subset_prices_nonan.values[-window_size:].flatten()
+            # collective_assets_model_extrapolation_X[0] = given_prices
+            # collective_assets_model_extrapolation_y[0] = \
+            #     y_scaler.inverse_transform(collective_assets_model_predict(
+            #         collective_assets_model_extrapolation_X[0].reshape(1, -1)))
+            # for currency_index in range(1, window_size):
+            #     given_prices = subset_prices_nonan.values[-window_size + currency_index:].flatten()
+            #     collective_assets_model_previous_predicted_prices = \
+            #         collective_assets_model_extrapolation_y[:currency_index].flatten()
+            #     collective_assets_model_extrapolation_X[currency_index] = \
+            #         np.concatenate((given_prices, collective_assets_model_previous_predicted_prices))
+            #     collective_assets_model_extrapolation_y[currency_index] = \
+            #         y_scaler.inverse_transform(collective_assets_model_predict(
+            #             collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten())
+            # for currency_index in range(window_size, model_num_extrapolation_times):
+            #     collective_assets_model_previous_predicted_prices = \
+            #         collective_assets_model_extrapolation_y[currency_index - window_size:currency_index].flatten()
+            #     collective_assets_model_extrapolation_X[currency_index] = \
+            #         collective_assets_model_previous_predicted_prices
+            #     collective_assets_model_extrapolation_y[currency_index] = \
+            #         y_scaler.inverse_transform(collective_assets_model_predict(
+            #             collective_assets_model_extrapolation_X[currency_index].reshape(1, -1)).flatten())
             collective_assets_model = None
             K.clear_session()
+            # Format the extrapolations for visualization.
+            collective_assets_model_extrapolation_y = fmt_pred_for_vis_extrp(collective_assets_model_extrapolation_y)
 
             # print("Plotting prediction figures!")
 
@@ -1096,7 +1237,7 @@ def main():
                 # Collective plot
                 collective_ax_current = collective_fig.add_subplot(subset_num_rows, subset_num_cols, currency_index + 1)
                 # Actual values
-                collective_ax_current.plot(date_times[window_size:], y[:, currency_index],
+                collective_ax_current.plot(date_times[window_size:], y_fmt_for_vis[:, currency_index],
                                            color=actual_values_color, label=actual_values_label)
                 # Single Asset Model Predictions
                 collective_ax_current.plot(model_extrapolation_times, single_asset_models_extrapolation_y[:, currency_index],
@@ -1119,7 +1260,7 @@ def main():
                 indiv_fig = plt.figure(figsize=(12, 6))
                 indiv_fig_ax = indiv_fig.add_subplot(111)
                 # Actual values
-                indiv_fig_ax.plot(date_times[window_size:], y[:, currency_index],
+                indiv_fig_ax.plot(date_times[window_size:], y_fmt_for_vis[:, currency_index],
                                   color=actual_values_color, label=actual_values_label)
                 # Single Asset Model Predictions
                 indiv_fig_ax.plot(model_extrapolation_times, single_asset_models_extrapolation_y[:, currency_index],
