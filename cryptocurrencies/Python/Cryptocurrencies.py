@@ -70,9 +70,9 @@ def main():
     # NOTE: See `ETL.load_data()` `date_range` parameter documentation for date ranges for daily and hourly data.
     # Whether to load from CSV files or a local MySQL database ('csv' or 'sql').
     load_source = 'csv'
-    analysis_data_resolution = 'hourly'
-    # analysis_data_date_range = ('2013-05-01', '2017-10-31') # Make sure this is at least three months to avoid errors.
-    analysis_data_date_range = ('2017-10-01', '2018-03-31')
+    analysis_data_resolution = 'daily'
+    analysis_data_date_range = ('2013-05-01', '2017-10-31') # Make sure this is at least three months to avoid errors.
+    # analysis_data_date_range = ('2017-11-01', '2018-03-31')
     analysis_time_unit = 'days' if analysis_data_resolution == 'daily' else 'hours'
     annualize_returns = partial(returns_to_yearly, resolution=analysis_data_resolution)
     # The resolution of data for the machine learning models.
@@ -203,7 +203,8 @@ def main():
              ['Iota', 'MIOTA'], ['Neo', 'NEO'], ['Numeraire', 'NMR'], ['Omisego', 'OMG'],
              ['Qtum', 'QTUM'], ['Stratis', 'STRAT'], ['Waves', 'WAVES']])
     else:
-        currencies_labels_tickers_to_remove = np.array([['Omisego', 'OMG']])
+        currencies_labels_tickers_to_remove = np.array([['Omisego', 'OMG'], ['Ethereum Classic', 'ETC'],
+                                                        ['Neo', 'NEO']])
     currencies_labels_to_remove = currencies_labels_tickers_to_remove[:, 0]
     currencies_tickers_to_remove = currencies_labels_tickers_to_remove[:, 1]
     currencies_labels_and_tickers_to_remove = ["{} ({})".format(currencies_label, currencies_ticker)
@@ -1236,7 +1237,7 @@ def main():
                                            color=monte_carlo_color, label=monte_carlo_label)
                 # Monte Carlo predictions (95% confidence interval)
                 monte_carlo_plot_confidence_band(collective_ax_current, model_extrapolation_times,
-                                                 MC_predicted_values_ranges, label_and_ticker, color='cyan')
+                                                 subset_monte_carlo_predicted_values_ranges, label_and_ticker, color='cyan')
                 collective_ax_current.set_xlabel('Date')
                 collective_ax_current.set_ylabel('Close')
                 collective_ax_current.set_title("{} ({}) Predicted Closing Value ({} {} window)"
@@ -1257,7 +1258,7 @@ def main():
                                   color=monte_carlo_color, label=monte_carlo_label)
                 # Monte Carlo predictions (95% confidence interval)
                 monte_carlo_plot_confidence_band(indiv_fig_ax, model_extrapolation_times,
-                                                 MC_predicted_values_ranges, label_and_ticker, color='cyan')
+                                                 subset_monte_carlo_predicted_values_ranges, label_and_ticker, color='cyan')
                 indiv_fig_ax.set_xlabel('Date')
                 indiv_fig_ax.set_ylabel('Close')
                 indiv_fig_ax.set_title("{} ({}) Predicted Closing Value ({} {} window)"
@@ -1296,7 +1297,7 @@ def main():
                                            color=monte_carlo_color, label=monte_carlo_label)
                 # Monte Carlo predictions (95% confidence interval)
                 monte_carlo_plot_confidence_band(collective_ax_current, model_extrapolation_times,
-                                                 MC_predicted_values_ranges, label_and_ticker, color='cyan')
+                                                 subset_monte_carlo_predicted_values_ranges, label_and_ticker, color='cyan')
                 collective_ax_current.set_xlabel('Date')
                 collective_ax_current.set_ylabel('Close')
                 collective_ax_current.set_title("{} ({}) True + Predicted Closing Value ({} {} window)"
@@ -1320,7 +1321,7 @@ def main():
                                   color=monte_carlo_color, label=monte_carlo_label)
                 # Monte Carlo predictions (95% confidence interval)
                 monte_carlo_plot_confidence_band(indiv_fig_ax, model_extrapolation_times,
-                                                 MC_predicted_values_ranges, label_and_ticker, color='cyan')
+                                                 subset_monte_carlo_predicted_values_ranges, label_and_ticker, color='cyan')
                 indiv_fig_ax.set_xlabel('Date')
                 indiv_fig_ax.set_ylabel('Close')
                 indiv_fig_ax.set_title("{} ({}) True + Predicted Closing Value ({} {} window)"

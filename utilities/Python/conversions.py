@@ -10,4 +10,4 @@ def returns_to_yearly(returns, resolution):
         Either 'daily' or 'hourly'.
     """
     exp_fact = 365 if resolution == 'daily' else 24*365
-    return (returns + 1) ** 365
+    return ((returns + 1) ** exp_fact) - 1

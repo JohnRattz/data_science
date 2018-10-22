@@ -9,7 +9,6 @@ def find_Markowitz_optimal_portfolio_weights(log_returns, return_risk_free=0, ma
     """
     Finds the optimal fractional composition (the "weights") for a portfolio of financial assets using the
     Markowitz portfolio optimization technique.
-    # TODO: Increase `markowitz_iterations` to 100000 when done programming.
     # TODO: Store the plot image rather than showing it.
 
     Parameters
