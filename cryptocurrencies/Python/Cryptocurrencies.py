@@ -7,7 +7,7 @@ def main():
     # `gpu_mem_frac` is the fraction of GPU memory dedicated to the TensorFlow backend
     # of Keras and may need to change based on your system and settings used - notably batch size in model training.
     # For reference, I run this script with a GTX 1080 Ti, which has 11 GiB of memory.
-    keras_init(gpu_mem_frac=0.35)
+    keras_init(gpu_mem_frac=0.5)
 
     ### Imports ###
 
@@ -31,6 +31,7 @@ def main():
     import matplotlib.pyplot as plt
     warnings.simplefilter('ignore')
     import seaborn as sns
+    from functools import partial
     from utilities.Python.plotting import KerasPlotLosses
 
     from ETL import load_data
@@ -51,42 +52,41 @@ def main():
     from machine_learning import create_keras_regressor, keras_reg_grid_search, keras_convert_optimizer_obj_to_name, \
                                  reshape_data_from_2D_to_keras
 
-
-    # Model Predictions
-    from functools import partial
-
     # Custom utility functions
     # sys.path.insert(0, '../../' + utilities_dir)
     from analysis import find_Markowitz_optimal_portfolio_weights, calc_CAPM_betas, CAPM_RoR, run_monte_carlo_financial_simulation
-    from conversions import pandas_dt_to_str
+    from type_conversions import pandas_dt_to_str
     from utilities.Python.plotting import add_value_text_to_seaborn_barplot, monte_carlo_plot_confidence_band
+    from utilities.Python.conversions import returns_to_yearly
 
     # Optimizers
     from keras.optimizers import Adam
 
     ### End Imports ###
 
-    ### Main Settings ###
+    ### Main Settings and Constants ###
 
-    # Data Importing
+    ## Data Import Settings##
     # NOTE: See `ETL.load_data()` `date_range` parameter documentation for date ranges for daily and hourly data.
-
     # Whether to load from CSV files or a local MySQL database ('csv' or 'sql').
     load_source = 'csv'
-    analysis_data_resolution = 'daily'
-    analysis_data_date_range = ('2013-07-01', '2017-10-31') # Make sure this is at least three months to avoid errors.
+    analysis_data_resolution = 'hourly'
+    # analysis_data_date_range = ('2013-05-01', '2017-10-31') # Make sure this is at least three months to avoid errors.
+    analysis_data_date_range = ('2017-10-01', '2018-03-31')
     analysis_time_unit = 'days' if analysis_data_resolution == 'daily' else 'hours'
+    annualize_returns = partial(returns_to_yearly, resolution=analysis_data_resolution)
     # The resolution of data for the machine learning models.
     model_data_resolution = 'hourly'
-    model_data_date_range = ('2017-07-01', '2017-12-31')
-    model_time_unit = 'days' if model_data_resolution == 'daily' else 'hours'
-    model_last_extrapolation_time = pd.to_datetime('2018-03-31')
+    model_data_date_range = ('2017-07-01', '2018-03-31')
+    model_last_extrapolation_time = pd.to_datetime('2018-08-31')
+    model_time_unit_singular = 'day' if model_data_resolution == 'daily' else 'hour'
+    model_time_unit_plural = 'days' if model_data_resolution == 'daily' else 'hours'
 
-    # Machine Learning Settings
+    ## Machine Learning Settings ##
     # TODO (model_loading_1): Create boolean variable `train_models_not_present` which specifies whether to train models missing
     # TODO (model_loading_1): on secondary storage when `load_models == True`.
     # TODO (model_loading_2): Detect if `load_models = False` will throw an error before running. If so, give a clear error message.
-    load_models = False # Whether or not to load models that have already been created by this program.
+    load_models = True # Whether or not to load models that have already been created by this program.
     # The number of logical processors to use during grid search.
     num_lgc_prcs_grd_srch = min(3, num_lgc_prcs)
     num_cv_splits = 3 # The number of folds in cross validation.
@@ -96,10 +96,10 @@ def main():
     # The level of verbosity in `keras_reg_grid_search()`.
     keras_grd_srch_verbose = 1
 
-    # Plotting Settings
+    ## Plotting Settings ##
     # TODO: Ensure this logic works even if using no Keras models.
     # Whether or not to plot analysis plots.
-    make_analysis_plots = False
+    make_analysis_plots = True
     # Whether or not to plot prediction plots.
     make_prediction_plots = True
     # Whether or not to plot loss for Keras neural networks over time during training when not using cross validation.
@@ -107,7 +107,7 @@ def main():
     make_keras_loss_plots = False
     # Whether or not to make plots of parameter set occurrences for Keras neural networks.
     # These figures are used to visualize the most successful parameter sets for Keras neural networks.
-    make_keras_param_set_occurrence_plots = True
+    make_keras_param_set_occurrence_plots = False
     # Whether Keras figures will be made for individual assets.
     make_asset_keras_figures = make_keras_loss_plots
     # Whether figures specific to individual assets will be made for all assets.
@@ -120,24 +120,24 @@ def main():
     make_any_figures = (make_analysis_plots or make_prediction_plots or
                         make_keras_loss_plots or make_keras_param_set_occurrence_plots)
 
-    # Figure Variables and Paths
+    ## Figure Variables and Paths ##
     figure_size = (12, 6) # The base figure size.
     figure_dpi = 300
     figures_dir = 'figures'
     if make_any_figures and not os.path.exists(figures_dir):
         os.makedirs(figures_dir)
 
-    # Models Variables and Paths
+    ## Models Variables and Paths ##
     models_dir = 'models'
     if not os.path.exists(models_dir):
         os.makedirs(models_dir)
 
-    # Param Sets Variables and Paths
+    ## Param Sets Variables and Paths ##
     param_sets_dir = 'param_sets'
     if not os.path.exists(param_sets_dir):
         os.makedirs(param_sets_dir)
 
-    # Parameter Set Occurrences Variables and Paths
+    ## Parameter Set Occurrences Variables and Paths ##
     param_set_occurrences_dir = 'param_set_occurrences_keras'
     if not os.path.exists(param_set_occurrences_dir):
         os.makedirs(param_set_occurrences_dir)
@@ -181,22 +181,6 @@ def main():
     # Find the returns.
     returns = prices.pct_change()
 
-    # Find correlations.
-    # TODO: Make value text smaller to fully fit into boxes.
-    if make_analysis_plots:
-        # Value Correlations
-        plt.figure(figsize=figure_size, dpi=figure_dpi)
-        # Price Correlations
-        price_correlations = prices.corr()
-        price_correlations_fig = sns.clustermap(price_correlations, annot=True)
-        price_correlations_fig.savefig('{}/price_correlations.png'.format(figures_dir))
-        plt.clf()
-        # Return Correlations
-        returns_correlations = returns.corr()
-        returns_correlations_fig = sns.clustermap(returns_correlations, annot=True)
-        returns_correlations_fig.savefig('{}/return_correlations.png'.format(figures_dir))
-        plt.clf()
-
     # Removing Currencies with Short Histories
 
     # See where values are absent and keep only currencies with reasonably lengthy histories.
@@ -212,7 +196,7 @@ def main():
         absent_values_fig.savefig('{}/absent_values.png'.format(figures_dir))
         prices.index = old_prices_index
 
-    # TODO: Determine `currencies_labels_tickers_to_remove` programatically rather than based on the preceding figure.
+    # TODO: Determine the cryptocurrencies to *keep* first, then programtically determine the ones to remove.
     if analysis_data_resolution == 'daily':
         currencies_labels_tickers_to_remove = np.array(
             [['Bitcoin Cash', 'BCH'], ['BitConnect', 'BCC'], ['Ethereum Classic', 'ETC'],
@@ -252,68 +236,108 @@ def main():
                 os.makedirs(keras_figures_subdir)
 
     # Find the returns.
+    # `pd.DataFrame` of returns over time for the subset of assets.
     subset_returns = subset_prices_nonan.pct_change()
-    log_returns = np.log(prices / prices.shift(1))
-    subset_log_returns = log_returns.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
+    # `pd.Series` of average yearly returns for the subset of assets.
+    subset_returns_yearly = annualize_returns(subset_returns.mean())
+    # print("subset_returns_yearly:", subset_returns_yearly)
+    # log_returns = np.log(prices / prices.shift(1))
+    # subset_log_returns = log_returns.drop(labels=currencies_labels_and_tickers_to_remove, axis=1)
+
+    # Find correlations.
+    # TODO: Make value text smaller to fully fit into boxes.
+    if make_analysis_plots:
+        clustermap_params = dict(annot=True, annot_kws=dict(fontsize=12), fmt='.2f', vmin=-1, vmax=1)
+        plt.figure(figsize=figure_size, dpi=figure_dpi)
+        # Price Correlations
+        price_correlations = subset_prices.corr()
+        price_correlations_fig = sns.clustermap(price_correlations, **clustermap_params)
+        price_correlations_fig.savefig('{}/price_correlations.png'.format(figures_dir))
+        plt.clf()
+        # Return Correlations
+        returns_correlations = subset_returns.corr()
+        returns_correlations_fig = sns.clustermap(returns_correlations, **clustermap_params)
+        returns_correlations_fig.savefig('{}/return_correlations.png'.format(figures_dir))
+        plt.clf()
+
     # Volatility Examination
     if make_analysis_plots:
-        # Find the standard deviations in returns.
-        returns_std_yearly = subset_returns.groupby(subset_prices_nonan.index.year).std()
+        # Find the standard deviations in returns for each year.
+        returns_std_by_year = subset_returns.groupby(subset_returns.index.year).std()
         # Standard deviations in returns for 2017 in descending order.
-        returns_std_2017 = returns_std_yearly.loc[2017]
+        returns_std_2017 = returns_std_by_year.loc[2017]
         returns_std_2017.sort_values(ascending=False, inplace=True)
         plt.subplots(figsize=figure_size)
         plotting_data = returns_std_2017.to_frame(name='Volatility').reset_index()
         volatility_plot = sns.barplot(x='Name', y='Volatility', data=plotting_data, palette='viridis')
-        add_value_text_to_seaborn_barplot(volatility_plot, plotting_data, 'Volatility')
+        # print("Volatitility plotting_data:", plotting_data)
+        add_value_text_to_seaborn_barplot(volatility_plot, plotting_data['Volatility'])
         plt.title('Volatility (2017)')
         plt.savefig('{}/volatility.png'.format(figures_dir), dpi=figure_dpi)
 
     # Find (daily) asset betas (covariance_with_market / market_variance).
     market_index = 'Bitcoin (BTC)'
-    betas = calc_CAPM_betas(log_returns, market_index)
-    betas.sort_values(ascending=False, inplace=True)
-    subset_betas = betas.drop(labels=currencies_labels_and_tickers_to_remove)
-    # Create a visualization with the beta values.
+    subset_betas = calc_CAPM_betas(subset_returns, market_index)
+    subset_betas.sort_values(ascending=False, inplace=True)
+    # subset_betas = betas.drop(labels=currencies_labels_and_tickers_to_remove)
+    # Visualize the beta values.
     if make_analysis_plots:
         fig, ax = plt.subplots(figsize=figure_size)
         plotting_data = subset_betas.to_frame(name='Beta').reset_index()
+        # print("Beta plotting_data:", plotting_data)
         beta_plot = sns.barplot(ax=ax, x='Name', y='Beta', data=plotting_data, palette='viridis')
         # Show values in the figure.
-        add_value_text_to_seaborn_barplot(beta_plot, plotting_data, 'Beta')
+        add_value_text_to_seaborn_barplot(beta_plot, plotting_data['Beta'])
         plt.title('Betas (Bitcoin (BTC) as Market Index)')
-        plt.savefig('{}/betas.png'.format(figures_dir), dpi=figure_dpi)
+        plt.savefig('{}/CAPM_betas.png'.format(figures_dir), dpi=figure_dpi)
 
     # Find assets' rates of return according to CAPM.
-    # NOTE: The rate of return of a risk free asset is often taken to be about 2.5% (e.g. 10 year US government bond),
-    # but for the time period being analyzed (2015-2017), the rate of return of the market index (taken to be Bitcoin)
-    # is less than 2.5%, so the risk premium becomes negative (there would be no reason to invest in the market
-    # according to CAPM).
-    return_risk_free = 0
-    CAPM_expected_rates_of_return = CAPM_RoR(subset_betas, returns, market_index, return_risk_free)
+    # The annual rate of return of a risk-free asset is set to 2.5%, since that has
+    # usually been the rate of return of 10-year U.S. government bonds.
+    return_risk_free = 0.025
+    CAPM_expected_rates_of_return = CAPM_RoR(subset_betas, subset_returns_yearly, market_index, return_risk_free)
     CAPM_expected_rates_of_return.sort_values(ascending=False, inplace=True)
-    # Create a visualization with the weights.
+    # print("CAPM_expected_rates_of_return:", CAPM_expected_rates_of_return)
+    # Visualize the rates of return required to justify investing in
+    # the assets versus investing in the market index according to CAPM.
     if make_analysis_plots:
         fig, ax = plt.subplots(figsize=figure_size)
-        plotting_data = CAPM_expected_rates_of_return.to_frame(name='Rate of Return').reset_index()
-        CAPM_plot = sns.barplot(ax=ax, x='Name', y='Rate of Return', data=plotting_data, palette='viridis')
+        plotting_data = CAPM_expected_rates_of_return.to_frame(name='Expected Rate of Return').reset_index()
+        CAPM_plot = sns.barplot(ax=ax, x='Name', y='Expected Rate of Return', data=plotting_data, palette='viridis')
+        # print("CAPM plotting_data:", plotting_data)
         # Show values in the figure.
-        add_value_text_to_seaborn_barplot(CAPM_plot, plotting_data, 'Rate of Return', percent=True)
+        add_value_text_to_seaborn_barplot(CAPM_plot, plotting_data['Expected Rate of Return'], percent=True)
         plt.title('CAPM Expected Rates of Return')
-        plt.savefig('{}/CAPM_rates_of_return.png'.format(figures_dir), dpi=figure_dpi)
+        plt.savefig('{}/CAPM_expected_rates_of_return.png'.format(figures_dir), dpi=figure_dpi)
+
+    # Plot the rates of return.
+    if make_analysis_plots:
+        # subset_mean_returns = subset_returns.mean()
+        # Put assets in the same order as in the CAPM expected rates of return figure.
+        # print("returns new index order:", CAPM_expected_rates_of_return.index)
+        plotting_data = subset_returns_yearly.reindex(CAPM_expected_rates_of_return.index, copy=False)
+        plotting_data = plotting_data.to_frame(name='Rate of Return').reset_index()
+        # subset_mean_returns.rename('Rate of Return')
+        # print("returns plotting_data:", plotting_data)
+        fig, ax = plt.subplots(figsize=figure_size)
+        returns_plot = sns.barplot(ax=ax, x='Name', y='Rate of Return', data=plotting_data, palette='viridis')
+        # Show values in the figure.
+        add_value_text_to_seaborn_barplot(returns_plot, plotting_data['Rate of Return'], percent=True)
+        plt.title('Rates of Return')
+        plt.savefig('{}/rates_of_return.png'.format(figures_dir), dpi=figure_dpi)
 
     # TODO: Calculate Sharpe ratios for individual assets ((return_asset - return_risk_free)/std_asset)?
 
     # Determine the optimal portfolio using Markowitz optimization.
     if make_analysis_plots:
-        optimal_weights = find_Markowitz_optimal_portfolio_weights(subset_log_returns, return_risk_free)
+        optimal_weights = find_Markowitz_optimal_portfolio_weights(subset_returns, return_risk_free)
         optimal_weights.sort_values(ascending=False, inplace=True)
         # Create a visualization with the weights.
         fig, ax = plt.subplots(figsize=figure_size)
         plotting_data = optimal_weights.to_frame(name='Weight').reset_index()
         portfolio_weights_plot = sns.barplot(ax=ax, x='Name', y='Weight', data=plotting_data, palette='viridis')
         # Show values in the figure.
-        add_value_text_to_seaborn_barplot(portfolio_weights_plot, plotting_data, 'Weight')
+        add_value_text_to_seaborn_barplot(portfolio_weights_plot, plotting_data['Weight'])
         plt.title('Markowitz Optimal Portfolio Weights')
         plt.savefig('{}/optimal_portfolio_weights.png'.format(figures_dir), dpi=figure_dpi)
 
@@ -334,7 +358,7 @@ def main():
     num_non_nan_times = len(subset_prices_nonan)
     date_times = subset_prices_nonan.index.values
     print("Considering {} {} of price information for model training (as many as without NaN values)."
-          .format(num_non_nan_times, model_time_unit))
+          .format(num_non_nan_times, model_time_unit_plural))
 
     model_last_data_time = prices.index[-1]
     model_offset_time = {'days': 1} if model_data_resolution == 'daily' else {'hours': 1}
@@ -372,7 +396,7 @@ def main():
         window_sizes = np.array([7, 14] + list(range(30, 361, 30)))
     else: # Window sizes in hours - 1 week, 2 weeks, 1 month, and 2 months.
         # With just 14 days and 7 cryptocurrencies, we have 14 * 24 * 7 = 2352 features.
-        window_sizes = 24*7*np.array([1, 2, 4, 8])
+        window_sizes = 24*7*np.array([1, 2, 4, 8, 12])
     window_sizes = window_sizes[::-1] # User larger to smaller window sizes to catch memory-related errors early.
 
     # Directory Structure Creation (Keras Optimization Trend Figures - "Loss Plots")
@@ -409,6 +433,14 @@ def main():
         # print("y[{}], y.shape:".format(0), y[0], y.shape)
 
         # Feature Scaling
+        # print("X, y shapes:", X.shape, y.shape)
+        # print("X, y combined shape:", np.concatenate((X,y)).shape)
+        # print("num nan X:", np.isnan(X).sum())
+        # print("num nan y:", np.isnan(y).sum())
+        # scaler = StandardScaler()
+        # scaler.fit(np.stack(X,y))
+        # scaler.transform(X)
+        # scaler.transform(y)
         X_scaler = StandardScaler()
         X_scaled = X_scaler.fit_transform(X)
         y_scaler = StandardScaler()
@@ -461,7 +493,7 @@ def main():
         #                      'model__batch_size': [100]}
         # TODO: Choose hidden layer sizes according to https://stats.stackexchange.com/a/1097/191200
         frst_hdn_lyr_sz_nn_single_asset = 512
-        frst_hdn_lyr_sz_nn_collective = 512
+        frst_hdn_lyr_sz_nn_collective = 1024
         # three_hidden_layers = (first_hidden_layer_size_collective, first_hidden_layer_size_collective // 2,
         #                        first_hidden_layer_size_collective // 4)
         # four_hidden_layers = three_hidden_layers + (first_hidden_layer_size_collective // 8,)
@@ -482,13 +514,13 @@ def main():
                                       #frst_hdn_lyr_sz_nn_collective // 16, frst_hdn_lyr_sz_nn_collective // 64)]
 
         keras_params_nn = {
-             'batch_size': [64],  # A too large batch size results in device OOMs.
+             'batch_size': [48],  # A too large batch size results in device OOMs.
              'hidden_layer_sizes': None, # Added later to handle single asset and collective asset models separately.
              'hidden_layer_type': ['LSTM'],
-             'dropout_rate': [0.2],
+             #'dropout_rate': [0.1],
              'optimizer': [Adam],
              # Parameters for Adam optimizer.
-             'lr': [2e-3],
+             'lr': [1e-3],
              'beta_1': [0.9],#[0.7, 0.9],
              'beta_2': [0.999]}#[0.9, 0.999]}
         keras_param_names = list(keras_params_nn.keys())
@@ -496,21 +528,11 @@ def main():
         # NOTE: This will likely impact run time much more significantly than `keras_nn_epochs` by a factor of
         # the number of parameter combinations in `keras_params_nn`, further multiplied by `n_splits` used
         # for cross validation (the `cv` object below) if `keras_use_cv_grd_srch`.
-        keras_nn_epochs_grd_srch = 10
+        keras_nn_epochs_grd_srch = 20
         keras_nn_epochs_grd_srch = max(2, keras_nn_epochs_grd_srch) \
             if not keras_use_cv_grd_srch & make_keras_loss_plots else keras_nn_epochs_grd_srch
         # The number of epochs to train for without or after cross validation.
-        keras_nn_epochs = 10
-
-        # make_keras_picklable()
-        # print(type(KerasRegressor(build_fn=create_keras_model)))
-        # from model_saving_loading import save_keras_pipeline, load_keras_pipeline
-        # model_filepath = 'keras_model'
-        # keras_step_name = 'model'
-        # pipeline_filepath = 'keras_pipeline'
-        # save_keras_pipeline(model_neural_net, keras_step_name, model_filepath, pipeline_filepath)
-        # loaded_pipeline = load_keras_pipeline(keras_step_name, model_filepath, pipeline_filepath)
-        # print(loaded_pipeline)
+        keras_nn_epochs = 20
 
         # Linear Models
         # TODO: Ridge (sklearn.linear_model.Ridge) regressor (if variance among price correlations
@@ -632,12 +654,11 @@ def main():
             currency_models_subdir = '{}/{}'.format(models_dir, currency_label_no_spaces)
             currency_param_sets_subdir = "{}/{}".format(param_sets_dir, currency_label_no_spaces)
             currency_figures_subdir = \
-                '{}/{}'.format(figures_dir, currency_label_no_spaces) if make_all_assets_figures else None
+                '{}/{}'.format(figures_dir, currency_label_no_spaces) if make_selected_assets_figures else None
             keras_figures_subdir = \
                 '{}/{}'.format(currency_figures_subdir, 'keras') if make_asset_keras_figures else None
             keras_figures_window_subdir = \
                 '{}/{}'.format(keras_figures_subdir, 'w_{}'.format(window_size)) if make_asset_keras_figures else None
-
             # Paths
             model_base_path = "{}/{}_model_{}".format(currency_models_subdir, currency_label_no_spaces, window_size)
             model_pickle_path = "{}.pkl".format(model_base_path)
@@ -660,7 +681,7 @@ def main():
             if not load_models:
                 currency_label_and_ticker = subset_currencies_labels_and_tickers[currency_index]
                 print("Currently training a model for {} with a window size of {} {}."
-                    .format(currency_label_and_ticker, window_size, model_time_unit))
+                    .format(currency_label_and_ticker, window_size, model_time_unit_plural))
 
                 # Tuples of scores, the corresponding models, and the best batch sizes for Keras models.
                 # score_model_batch_size_tuples = []
@@ -741,7 +762,7 @@ def main():
 
         if not load_models:
             print("Currently training a model for all assets collectively "
-                  "with a window size of {} {}.".format(window_size, model_time_unit))
+                  "with a window size of {} {}.".format(window_size, model_time_unit_plural))
 
             # Tuples of scores and the corresponding models (along with the best batch sizes for Keras models)
             # score_model_batch_size_tuples = []
@@ -824,7 +845,7 @@ def main():
 
         # Validation and Visualization (for each window size)
         if make_prediction_plots:
-            print("Predicting prices with a window of {} {} of preceding currency values.".format(window_size, model_time_unit))
+            print("Predicting prices with a window of {} {} of preceding currency values.".format(window_size, model_time_unit_plural))
 
             # Single Asset Model Predictions
             def single_asset_models_predict(X):
@@ -839,6 +860,8 @@ def main():
                 X: numpy.ndarray
                     The feature matrix to predict for.
                 """
+                # print("Entering single_asset_models_predict()!")
+                # print("X.shape:", X.shape)
                 # num_time_indices = int(np.ceil(len(X)/window_size))
                 # single_asset_models_pred = np.empty((len(X),subset_num_currencies), dtype=np.float64)
                 single_asset_models_pred = np.empty_like(X)
@@ -846,15 +869,21 @@ def main():
                 for currency_index in range(subset_num_currencies):
                     param_set = single_asset_models_param_sets[currency_index]
                     X_subset = get_X_subset(X, currency_index, subset_num_currencies)
+                    # print("num nans X_subset:", np.isnan(X_subset).sum(), X_subset.shape)
                     single_asset_model = single_asset_models[currency_index]
                     # Handle any reshaping for models that require it.
                     if type(single_asset_model) is keras.models.Sequential:
                         X_subset = reshape_data_from_2D_to_keras(param_set, 1, X_subset)
+                    # print("num nans X_subset reshaped:", np.isnan(X_subset).sum(), X_subset.shape)
                     # print("X_subset:", X_subset.shape)
-                    # print("single_asset_model.predict(X_subset):", single_asset_model.predict(X_subset).shape)
+                    # print("num nans single_asset_model.predict(X_subset):",
+                    #       np.isnan(single_asset_model.predict(X_subset)).sum(), single_asset_model.predict(X_subset).shape)
                     single_asset_models_pred[:, currency_index::subset_num_currencies] = single_asset_model.predict(X_subset)
+                    # print("num nans single_asset_models_pred[:, {}::{}]:".format(currency_index, subset_num_currencies),
+                    #       np.isnan(single_asset_models_pred[:, currency_index::subset_num_currencies]).sum())
                 # print("X.shape:", X.shape)
                 # print("single_asset_models_pred.shape:", single_asset_models_pred.shape)
+                # print("Leaving single_asset_models_predict()!")
                 return single_asset_models_pred
 
             def collective_assets_model_predict(X):
@@ -942,8 +971,10 @@ def main():
             # Create version of `fmt_pred_for_vis()` for predictions for available data (validation).
             # Because we are windowing, we only need some windows to get all possible predictions for available data.
             X_scaled_fmt_for_pred = X_scaled[::window_size]
+            # print("num nans X_scaled_fmt_for_pred:", np.isnan(X_scaled_fmt_for_pred).sum())
             # print("y.shape, window_size:", y.shape, window_size)
             y_fmt_for_vis = y[::window_size]
+            # print("num nans y_fmt_for_vis:", np.isnan(y_fmt_for_vis).sum())
             # print("Before, X_scaled_fmt_for_pred.shape, y_fmt_for_pred.shape:",
             #       X_scaled_fmt_for_pred.shape, y_fmt_for_vis.shape)
             # If `X` and `y` can't be exactly covered with non-overlapping windows,
@@ -953,6 +984,8 @@ def main():
                 # print("X_scaled[-window_size]:", X_scaled[[-window_size]].shape)
                 X_scaled_fmt_for_pred = np.concatenate([X_scaled_fmt_for_pred, X_scaled[[-1]]])#-window_size]]])
                 y_fmt_for_vis = np.concatenate([y_fmt_for_vis, y[[-1]]])#-window_size]]])
+            # print("num nans X_scaled_fmt_for_pred finished:", np.isnan(X_scaled_fmt_for_pred).sum())
+            # print("num nans y_fmt_for_vis finished:", np.isnan(y_fmt_for_vis).sum())
             # print("After, X_scaled_fmt_for_pred.shape, y_fmt_for_pred.shape:",
             #       X_scaled_fmt_for_pred.shape, y_fmt_for_vis.shape)
             # The number of points that will be in the predictions for available data.
@@ -982,7 +1015,7 @@ def main():
             extrp_pred_num_times_excess = extrp_pred_num_times - extrp_pred_num_times_expected
             # print("extrp_pred_num_times:", extrp_pred_num_times)
             # print("extrp_pred_num_times_expected:", extrp_pred_num_times_expected)
-            # print("extrp_pred_num_times_excess:", extrp_pred_num_times_excess)
+            # print("extrpgy_pred_num_times_excess:", extrp_pred_num_times_excess)
             fmt_pred_for_vis_extrp = \
                 partial(fmt_pred_for_vis, num_times_excess=extrp_pred_num_times_excess,
                         num_times_expected=extrp_pred_num_times_expected, num_features=subset_num_currencies)
@@ -1040,8 +1073,9 @@ def main():
                                            color=ml_model_collective_color, alpha=0.5, label=ml_model_collective_label)
                 collective_ax_current.set_xlabel('Date')
                 collective_ax_current.set_ylabel('Close')
-                collective_ax_current.set_title("{} ({}) Closing Value ({} day window)"
-                                                .format(currency_label, currency_ticker, window_size))
+                collective_ax_current.set_title("{} ({}) Closing Value ({} {} window)"
+                                                .format(currency_label, currency_ticker, window_size,
+                                                        model_time_unit_singular))
                 collective_ax_current.legend()
                 # Individual plot
                 indiv_fig = plt.figure(figsize=(12, 6))
@@ -1057,8 +1091,9 @@ def main():
                                   color=ml_model_collective_color, alpha=0.5, label=ml_model_collective_label)
                 indiv_fig_ax.set_xlabel('Date')
                 indiv_fig_ax.set_ylabel('Close')
-                indiv_fig_ax.set_title("{} ({}) Closing Value ({} day window)"
-                                       .format(currency_label, currency_ticker, window_size))
+                indiv_fig_ax.set_title("{} ({}) Closing Value ({} {} window)"
+                                       .format(currency_label, currency_ticker, window_size,
+                                               model_time_unit_singular))
                 indiv_fig_ax.legend()
                 currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
                 indiv_fig.savefig('{}/{}_validation_{}.png'
@@ -1093,9 +1128,18 @@ def main():
             single_asset_models_extrapolation_y[0] = \
                 y_scaler.inverse_transform(single_asset_models_predict(
                     X_scaled[-1].reshape(1,-1)))
+            # print("num nans X_scaled:", np.isnan(X_scaled).sum())
+            # print("num nans single_asset_models_predict(X_scaled[-1].reshape(1,-1)):",
+            #       np.isnan(single_asset_models_predict(X_scaled[-1].reshape(1, -1))).sum())
+            # print("num nans single_asset_models_extrapolation_y[0]:",
+            #       np.isnan(single_asset_models_extrapolation_y[0]).sum())
             # print("single_asset_models_extrapolation_y[0]:", single_asset_models_extrapolation_y[0])
             # Predict future values based on windows of previously predicted future values.
             for window_index in range(1, len(single_asset_models_extrapolation_y)):
+                # print(single_asset_models_extrapolation_y[window_index-1].reshape(1,-1))
+                # print(y_scaler.transform(single_asset_models_extrapolation_y[window_index-1].reshape(1,-1)))
+                # print(y_scaler.inverse_transform(single_asset_models_predict(
+                #         y_scaler.transform(single_asset_models_extrapolation_y[window_index-1].reshape(1,-1)))))
                 single_asset_models_extrapolation_y[window_index] = \
                     y_scaler.inverse_transform(single_asset_models_predict(
                         X_scaler.transform(single_asset_models_extrapolation_y[window_index-1].reshape(1,-1))))
@@ -1195,8 +1239,9 @@ def main():
                                                  MC_predicted_values_ranges, label_and_ticker, color='cyan')
                 collective_ax_current.set_xlabel('Date')
                 collective_ax_current.set_ylabel('Close')
-                collective_ax_current.set_title("{} ({}) Predicted Closing Value ({} day window)"
-                                                .format(currency_label, currency_ticker, window_size))
+                collective_ax_current.set_title("{} ({}) Predicted Closing Value ({} {} window)"
+                                                .format(currency_label, currency_ticker, window_size,
+                                                        model_time_unit_singular))
                 collective_ax_current.legend()
                 # Individual plot
                 indiv_fig = plt.figure(figsize=(12, 6))
@@ -1215,8 +1260,9 @@ def main():
                                                  MC_predicted_values_ranges, label_and_ticker, color='cyan')
                 indiv_fig_ax.set_xlabel('Date')
                 indiv_fig_ax.set_ylabel('Close')
-                indiv_fig_ax.set_title("{} ({}) Predicted Closing Value ({} day window)"
-                                       .format(currency_label, currency_ticker, window_size))
+                indiv_fig_ax.set_title("{} ({}) Predicted Closing Value ({} {} window)"
+                                       .format(currency_label, currency_ticker, window_size,
+                                               model_time_unit_singular))
                 indiv_fig_ax.legend()
                 currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
                 indiv_fig.savefig('{}/{}_predictions_{}.png'
@@ -1253,8 +1299,9 @@ def main():
                                                  MC_predicted_values_ranges, label_and_ticker, color='cyan')
                 collective_ax_current.set_xlabel('Date')
                 collective_ax_current.set_ylabel('Close')
-                collective_ax_current.set_title("{} ({}) True + Predicted Closing Value ({} day window)"
-                                                .format(currency_label, currency_ticker, window_size))
+                collective_ax_current.set_title("{} ({}) True + Predicted Closing Value ({} {} window)"
+                                                .format(currency_label, currency_ticker, window_size,
+                                                        model_time_unit_singular))
                 collective_ax_current.legend()
                 # Individual plot
                 indiv_fig = plt.figure(figsize=(12, 6))
@@ -1276,8 +1323,9 @@ def main():
                                                  MC_predicted_values_ranges, label_and_ticker, color='cyan')
                 indiv_fig_ax.set_xlabel('Date')
                 indiv_fig_ax.set_ylabel('Close')
-                indiv_fig_ax.set_title("{} ({}) True + Predicted Closing Value ({} day window)"
-                                       .format(currency_label, currency_ticker, window_size))
+                indiv_fig_ax.set_title("{} ({}) True + Predicted Closing Value ({} {} window)"
+                                       .format(currency_label, currency_ticker, window_size,
+                                               model_time_unit_singular))
                 indiv_fig_ax.legend()
                 currency_figures_subdir = '{}/{}'.format(figures_dir, currency_label_no_spaces)
                 indiv_fig.savefig('{}/{}_actual_plus_predictions_{}.png'

@@ -49,7 +49,7 @@ def monte_carlo_plot_confidence_band(ax, extrapolation_dates, monte_carlo_predic
 
 ### Seaborn ###
 
-def add_value_text_to_seaborn_barplot(ax, plotting_data, vertical_label, percent=False):
+def add_value_text_to_seaborn_barplot(ax, plotting_data, num_dec_pts=2, percent=False):
     """
     Adds text for the value of each bar in a seaborn bar plot.
 
@@ -57,17 +57,17 @@ def add_value_text_to_seaborn_barplot(ax, plotting_data, vertical_label, percent
     ----------
     ax: matplotlib.axes.Axes (matplotlib.axes.AxesSubplot)
         The axes returned from a call to `seaborn.barplot()`
-    plotting_data: pandas.core.frame.DataFrame
-        The `DataFrame` containing the plotting data.
-    horizontal_label: str
-        A string denoting the label of the column in `plotting_data` which spans the x axis.
-    vertical_label: str
-        A string denoting the label of the column in `plotting_data` which determines bar height.
+    plotting_data: pandas.core.series.Series
+        The `Series` containing the plotting data.
+    num_dec_pts: int
+        The number of decimal points to show.
+    percent: bool
+        Whether or not to print the value as a percent.
     """
     x_pos = 0  # The position on the x axis at which to add the text.
-    for index, row in plotting_data.iterrows():
-        text = str(round(row[vertical_label], 3)) if not percent else str(round(row[vertical_label], 3) * 100) + '%'
-        ax.text(x_pos, row[vertical_label], text, color='black', ha='center', fontsize=value_text_fontsize)
+    for row_val in plotting_data:
+        text = "{0:.{1}{2}}".format(row_val, num_dec_pts, "f" if not percent else "%")
+        ax.text(x_pos, row_val, text, color='black', ha='center', fontsize=value_text_fontsize)
         x_pos += 1.0  # Add the x axis spacing between points.
 
 ### End Seaborn ###

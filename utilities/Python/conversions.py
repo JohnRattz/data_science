@@ -1,17 +1,13 @@
-# sys.path.insert(0,'../../' + utilities_dir)
-import pandas as pd
-
-
-def pandas_dt_to_str(date):
+def returns_to_yearly(returns, resolution):
     """
-    Prints pandas `Datetime` objects as strings.
-    """
-    return date.strftime("%Y-%m-%d")
+    Compounds daily or hourly returns to yearly returns.
 
-
-def numpy_dt64_to_str(date):
+    Parameters
+    ----------
+    returns: pandas.core.series.Series or numpy.ndarray
+        The returns to convert to yearly returns.
+    resolution: str
+        Either 'daily' or 'hourly'.
     """
-    Prints NumPy `datetime64` objects as strings.
-    """
-    pd_datetime = pd.to_datetime(str(date))
-    return pandas_dt_to_str(pd_datetime)
+    exp_fact = 365 if resolution == 'daily' else 24*365
+    return (returns + 1) ** 365

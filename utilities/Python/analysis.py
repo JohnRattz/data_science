@@ -49,30 +49,29 @@ def find_Markowitz_optimal_portfolio_weights(log_returns, return_risk_free=0, ma
     index_max_sharpe = np.argmax(sharpe_ratios)
     return pd.Series(data=weights[index_max_sharpe], index=log_returns.columns)
 
-
-def calc_CAPM_betas(log_returns, market_index):
+def calc_CAPM_betas(returns, market_index):
     """
-    Calculate the CAPM beta values of assets based on their logarithmic returns and a specified market index.
+    Calculate the CAPM beta values of assets based on their returns and a specified market index.
 
     Parameters
     ----------
-    log_returns: pandas.core.frame.DataFrame
-        The logarithmic returns of the assets to acquire beta values for (index would be time).
+    returns: pandas.core.frame.DataFrame
+        The returns of the assets to acquire beta values for (index would be time).
     market_index: str
-        String specifying the column name in `log_returns` that serves as the market index.
+        String specifying the column name in `returns` that serves as the market index.
 
     Returns
     -------
     betas: pandas.Series
-        A `Series` containing the beta values for each asset in `log_returns`.
+        A `Series` containing the beta values for each asset in `returns`.
     """
-    log_returns_cov = log_returns.cov()
-    betas = pd.Series(index=log_returns.columns)
+    returns_cov = returns.cov()
+    betas = pd.Series(index=returns.columns)
     # The index of the column in `betas` corresponding to the market index (Bitcoin)
     market_index_index = betas.index.get_loc(market_index)
     for i, label_and_ticker in enumerate(betas.index):
-        cov_with_market = log_returns_cov.iloc[i, market_index_index]
-        market_var = log_returns_cov.iloc[market_index_index, market_index_index]
+        cov_with_market = returns_cov.iloc[i, market_index_index]
+        market_var = returns_cov.iloc[market_index_index, market_index_index]
         betas[label_and_ticker] = cov_with_market / market_var
     return betas
 
@@ -80,8 +79,13 @@ def CAPM_RoR(betas, returns, market_index, return_risk_free):
     """
     # TODO: Document this method.
     """
+    # print("In CAPM_RoR!")
+    # print("betas:", betas)
+    # print("returns:", returns)
     return_market = returns[market_index].mean()
+    # print("return_market:", return_market)
     risk_premium = return_market - return_risk_free
+    # print("risk_premium:", risk_premium)
     CAPM_expected_rates_of_return = pd.Series(index=betas.index)
     for i, label_and_ticker in enumerate(CAPM_expected_rates_of_return.index):
         CAPM_expected_rates_of_return[i] = return_risk_free + betas[label_and_ticker] * risk_premium
@@ -90,7 +94,6 @@ def CAPM_RoR(betas, returns, market_index, return_risk_free):
 
 def run_monte_carlo_financial_simulation(prices, extrapolation_dates, iterations=1000):
     """
-    TODO: Increase `iterations` to 1000 when finished programming.
     Runs a Monte Carlo simulation of asset values using the concept of Brownian motion.
 
     Parameters
